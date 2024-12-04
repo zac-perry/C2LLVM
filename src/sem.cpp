@@ -1,76 +1,76 @@
 #include <stdio.h>
 
 extern "C" {
-    #include "cc.h"
-    #include "scan.h"
-    #include "semutil.h"
-    #include "sem.h"
-    #include "sym.h"
+#include "cc.h"
+#include "scan.h"
+#include "sem.h"
+#include "semutil.h"
+#include "sym.h"
 }
 
-#include "llvm/ExecutionEngine/ExecutionEngine.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/IR/DerivedTypes.h"
-#include "llvm/IR/LLVMContext.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Verifier.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
-#include "llvm/ADT/APFloat.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
-#include <utility>
-#include <cstdlib>
-#include <memory>
+#include "llvm/IR/Verifier.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
 #include <cctype>
 #include <cstdio>
-#include <string>
-#include <vector>
+#include <cstdlib>
 #include <list>
 #include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
-# define MAXLOOPNEST 50
-# define MAXLABELS 50
-# define MAXGOTOS 50
+#define MAXLOOPNEST 50
+#define MAXLABELS 50
+#define MAXGOTOS 50
 
+using llvm::AllocaInst;
+using llvm::ArrayType;
+using llvm::BasicBlock;
+using llvm::BranchInst;
+using llvm::Constant;
+using llvm::ConstantAggregateZero;
+using llvm::ConstantInt;
+using llvm::Function;
+using llvm::FunctionType;
+using llvm::GlobalValue;
+using llvm::GlobalVariable;
+using llvm::Instruction;
+using llvm::IntegerType;
+using llvm::IRBuilder;
+using llvm::LLVMContext;
+using llvm::Module;
+using llvm::outs;
+using llvm::PointerType;
+using llvm::Type;
+using llvm::Value;
 using std::map;
 using std::string;
 using std::vector;
-using llvm::outs;
-using llvm::Type;
-using llvm::Value;
-using llvm::Module;
-using llvm::Function;
-using llvm::Constant;
-using llvm::IRBuilder;
-using llvm::ArrayType;
-using llvm::BasicBlock;
-using llvm::AllocaInst;
-using llvm::BranchInst;
-using llvm::Instruction;
-using llvm::LLVMContext;
-using llvm::ConstantInt;
-using llvm::GlobalValue;
-using llvm::IntegerType;
-using llvm::PointerType;
-using llvm::FunctionType;
-using llvm::GlobalVariable;
-using llvm::ConstantAggregateZero;
 
-extern int formalnum;                         /* number of formal arguments */
-extern struct id_entry* formalvars[MAXLOCS];  /* entries for parameters */
-extern int localnum;                          /* number of local variables  */
-extern struct id_entry* localvars[MAXLOCS];   /* entries for local variables */
+extern int formalnum;                        /* number of formal arguments */
+extern struct id_entry *formalvars[MAXLOCS]; /* entries for parameters */
+extern int localnum;                         /* number of local variables  */
+extern struct id_entry *localvars[MAXLOCS];  /* entries for local variables */
 
 static LLVMContext TheContext;
 static IRBuilder<> Builder(TheContext);
 static std::unique_ptr<Module> TheModule;
 
-template<typename T, typename... Args>
-std::unique_ptr<T> make_unique(Args&&... args) {
+template <typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args &&...args) {
   return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
 }
 
@@ -78,40 +78,31 @@ static int label_index = 0;
 int relexpr = 0;
 
 struct loopscope {
-  struct sem_rec* breaks;
-  struct sem_rec* conts;
+  struct sem_rec *breaks;
+  struct sem_rec *conts;
 } lscopes[MAXLOOPNEST];
 
 static int looplevel = 0;
-struct loopscope *looptop = (struct loopscope *) NULL;
+struct loopscope *looptop = (struct loopscope *)NULL;
 
 struct labelnode {
-   const char *id;    /* label string    */
-   BasicBlock *bb;    /* basic block for label */
+  const char *id; /* label string    */
+  BasicBlock *bb; /* basic block for label */
 } labels[MAXLABELS];
 
 struct gotonode {
-   const char *id;     /* label string in goto statement */
-   BranchInst *branch; /* branch to temporary label */
-} gotos[MAXGOTOS];     /* list of gotos to be backpatched */
+  const char *id;     /* label string in goto statement */
+  BranchInst *branch; /* branch to temporary label */
+} gotos[MAXGOTOS];    /* list of gotos to be backpatched */
 
 int numgotos = 0;    /* number of gotos to be backpatched */
 int numlabelids = 0; /* total label ids in function */
 
-std::string new_label()
-{
-  return ("L" + std::to_string(label_index++));
-}
+std::string new_label() { return ("L" + std::to_string(label_index++)); }
 
-BasicBlock*
-create_tmp_label()
-{
-  return BasicBlock::Create(TheContext);
-}
+BasicBlock *create_tmp_label() { return BasicBlock::Create(TheContext); }
 
-BasicBlock*
-create_named_label(std::string label)
-{
+BasicBlock *create_named_label(std::string label) {
   Function *curr_func = Builder.GetInsertBlock()->getParent();
   BasicBlock *new_block = BasicBlock::Create(TheContext, label, curr_func);
   return new_block;
@@ -120,8 +111,8 @@ create_named_label(std::string label)
 /*
  * convert an internal csem type (s_type or i_type) to an LLVM Type*
  */
-Type *get_llvm_type(int type){
-  switch( type &~(T_ARRAY|T_ADDR) ){
+Type *get_llvm_type(int type) {
+  switch (type & ~(T_ARRAY | T_ADDR)) {
   case T_INT:
     return Type::getInt32Ty(TheContext);
     break;
@@ -129,7 +120,7 @@ Type *get_llvm_type(int type){
     return Type::getDoubleTy(TheContext);
     break;
   default:
-    fprintf(stderr,"get_llvm_type: invalid type %x\n", type);
+    fprintf(stderr, "get_llvm_type: invalid type %x\n", type);
     exit(1);
     break;
   }
@@ -138,35 +129,28 @@ Type *get_llvm_type(int type){
 /*
  * startloopscope - start the scope for a loop
  */
-void
-startloopscope()
-{
-   looptop = &lscopes[looplevel++];
-   if (looptop > lscopes+MAXLOOPNEST) {
-      fprintf(stderr, "loop nest too great\n");
-      exit(1);
-   }
-   looptop->breaks = (struct sem_rec *) NULL;
-   looptop->conts = (struct sem_rec *) NULL;
+void startloopscope() {
+  looptop = &lscopes[looplevel++];
+  if (looptop > lscopes + MAXLOOPNEST) {
+    fprintf(stderr, "loop nest too great\n");
+    exit(1);
+  }
+  looptop->breaks = (struct sem_rec *)NULL;
+  looptop->conts = (struct sem_rec *)NULL;
 }
 
 /*
  * endloopscope - end the scope for a loop
  */
-void
-endloopscope()
-{
+void endloopscope() {
   looplevel--;
   looptop--;
 }
 
-
 /*
  * Global allocations. Globals are initialized to 0.
  */
-void
-global_alloc (struct id_entry *p, int width)
-{
+void global_alloc(struct id_entry *p, int width) {
   string name(p->i_name);
   GlobalVariable *var;
   Type *type;
@@ -175,8 +159,7 @@ global_alloc (struct id_entry *p, int width)
   if (p->i_type & T_ARRAY) {
     type = ArrayType::get(get_llvm_type(p->i_type), width);
     init = ConstantAggregateZero::get(type);
-  }
-  else {
+  } else {
     type = get_llvm_type(p->i_type);
     init = ConstantInt::get(get_llvm_type(T_INT), 0);
   }
@@ -184,9 +167,8 @@ global_alloc (struct id_entry *p, int width)
   TheModule->getOrInsertGlobal(name, type);
   var = TheModule->getNamedGlobal(name);
   var->setInitializer(init);
-  p->i_value = (void*) var;
+  p->i_value = (void *)var;
 }
-
 
 /*
  * backpatch - set temporary labels in the sem_rec to real labels
@@ -198,12 +180,23 @@ global_alloc (struct id_entry *p, int width)
  * BranchInst::getSuccessor(unsigned)
  * BranchInst::setSuccessor(unsigned, BasicBlock*)
  */
-void backpatch(struct sem_rec *rec, void *bb)
-{
-  fprintf(stderr, "sem: backpatch not implemented\n");
+void backpatch(struct sem_rec *rec, void *bb) {
+  unsigned i;
+  BranchInst *br_inst;
+
+  if ((br_inst = llvm::dyn_cast<BranchInst>((Value *)rec->s_value))) {
+    for (i = 0; i < br_inst->getNumSuccessors(); i++) {
+      if (br_inst->getSuccessor(i) == ((BasicBlock *)rec->s_bb)) {
+        br_inst->setSuccessor(i, (BasicBlock *)bb);
+      }
+    }
+  } else {
+    fprintf(stderr, "error: backpatch with non-branch instruction\n");
+    exit(1);
+  }
+
   return;
 }
-
 
 /*
  * call - procedure invocation
@@ -216,13 +209,10 @@ void backpatch(struct sem_rec *rec, void *bb)
  * makeArrayRef(vector<Value*>)
  * IRBuilder::CreateCall(Function *, ArrayRef<Value*>)
  */
-struct sem_rec*
-call(char *f, struct sem_rec *args)
-{
+struct sem_rec *call(char *f, struct sem_rec *args) {
   fprintf(stderr, "sem: call not implemented\n");
-  return ((struct sem_rec*) NULL);
+  return ((struct sem_rec *)NULL);
 }
-
 
 /*
  * ccand - logical and
@@ -233,11 +223,9 @@ call(char *f, struct sem_rec *args)
  * LLVM API calls:
  * None
  */
-struct sem_rec*
-ccand(struct sem_rec *e1, void *m, struct sem_rec *e2)
-{
+struct sem_rec *ccand(struct sem_rec *e1, void *m, struct sem_rec *e2) {
   fprintf(stderr, "sem: ccand not implemented\n");
-  return ((struct sem_rec*) NULL);
+  return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -252,11 +240,23 @@ ccand(struct sem_rec *e1, void *m, struct sem_rec *e2)
  * IRBuilder::CreateFCmpONE(Value *, Value *)
  * IRBuilder::CreateCondBr(Value *, BasicBlock *, BasicBlock *)
  */
-struct sem_rec*
-ccexpr(struct sem_rec *e)
-{
-  fprintf(stderr, "sem: ccexpr not implemented\n");
-  return ((struct sem_rec *) NULL);
+struct sem_rec *ccexpr(struct sem_rec *e) {
+  BasicBlock *tmp_true, *tmp_false;
+  Value *val;
+
+  // creating the temporary labels to jump to (true and false)
+  // create a branch instruction, based on the value passed in (e)
+  tmp_true = create_tmp_label();
+  tmp_false = create_tmp_label();
+  val = Builder.CreateCondBr((Value *)e->s_value, tmp_true, tmp_false);
+
+  // this return is confusing but basically represents (node { s_true = true,
+  // s_false = false} )
+  return (node((void *)NULL, (void *)NULL, 0, (struct sem_rec *)NULL,
+               (node(val, tmp_true, 0, (struct sem_rec *)NULL,
+                     (struct sem_rec *)NULL, (struct sem_rec *)NULL)),
+               (node(val, tmp_false, 0, (struct sem_rec *)NULL,
+                     (struct sem_rec *)NULL, (struct sem_rec *)NULL))));
 }
 
 /*
@@ -268,11 +268,9 @@ ccexpr(struct sem_rec *e)
  * LLVM API calls:
  * None
  */
-struct sem_rec*
-ccnot(struct sem_rec *e)
-{
+struct sem_rec *ccnot(struct sem_rec *e) {
   fprintf(stderr, "sem: ccnot not implemented\n");
-  return ((struct sem_rec *) NULL);
+  return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -284,9 +282,7 @@ ccnot(struct sem_rec *e)
  * LLVM API calls:
  * None -- but uses backpatch
  */
-struct sem_rec*
-ccor(struct sem_rec *e1, void *m, struct sem_rec *e2)
-{
+struct sem_rec *ccor(struct sem_rec *e1, void *m, struct sem_rec *e2) {
   fprintf(stderr, "sem: ccor not implemented\n");
   return NULL;
 }
@@ -300,19 +296,23 @@ ccor(struct sem_rec *e1, void *m, struct sem_rec *e2)
  * LLVM API calls:
  * ConstantInt::get(Type*, int)
  */
-struct sem_rec*
-con(const char *x)
-{
+struct sem_rec *con(const char *x) {
+  // Character string gets passed. Will insert the value into the symbol table
+  // Then, uses LLVM call to create an i_value based on ConstantInt::get
+  // (creates llvm constant to use) Package up content into an s_node and return
+  // that
   struct id_entry *entry;
+
   if ((entry = lookup(x, 0)) == NULL) {
-    entry = install (x, 0);
+    entry = install(x, 0);
     entry->i_type = T_INT;
     entry->i_scope = GLOBAL;
     entry->i_defined = 1;
   }
 
-  fprintf(stderr, "sem: remainder of con not implemented\n");
-  return ((struct sem_rec *) NULL);
+  // return a sem_rec corresponding to the constant value
+  entry->i_value = (void *)ConstantInt::get(get_llvm_type(T_INT), std::stoi(x));
+  return (s_node((void *)entry->i_value, entry->i_type));
 }
 
 /*
@@ -324,9 +324,7 @@ con(const char *x)
  * LLVM API calls:
  * None -- but uses n
  */
-void
-dobreak()
-{
+void dobreak() {
   fprintf(stderr, "sem: dobreak not implemented\n");
   return;
 }
@@ -340,9 +338,7 @@ dobreak()
  * LLVM API calls:
  * None -- but uses n
  */
-void
-docontinue()
-{
+void docontinue() {
   fprintf(stderr, "sem: docontinue not implemented\n");
   return;
 }
@@ -357,9 +353,7 @@ docontinue()
  * LLVM API calls:
  * None -- but uses backpatch
  */
-void
-dodo(void *m1, void *m2, struct sem_rec *cond, void *m3)
-{
+void dodo(void *m1, void *m2, struct sem_rec *cond, void *m3) {
   fprintf(stderr, "sem: dodo not implemented\n");
   return;
 }
@@ -374,10 +368,8 @@ dodo(void *m1, void *m2, struct sem_rec *cond, void *m3)
  * LLVM API calls:
  * None -- but uses backpatch
  */
-void
-dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1, void *m3,
-  struct sem_rec *n2, void *m4)
-{
+void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
+           void *m3, struct sem_rec *n2, void *m4) {
   fprintf(stderr, "sem: dofor not implemented\n");
   return;
 }
@@ -391,9 +383,7 @@ dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1, void *m3,
  * LLVM API calls:
  * IRBuilder::CreateBr(BasicBlock *)
  */
-void
-dogoto(char *id)
-{
+void dogoto(char *id) {
   fprintf(stderr, "sem: dogoto not implemented\n");
   return;
 }
@@ -408,9 +398,9 @@ dogoto(char *id)
  * LLVM API calls:
  * None -- but uses backpatch
  */
-void
-doif(struct sem_rec *cond, void *m1, void *m2)
-{
+void doif(struct sem_rec *cond, void *m1, void *m2) {
+  // 1. First: implement backpatching
+  // Then, use that within this
   fprintf(stderr, "sem: doif not implemented\n");
   return;
 }
@@ -425,10 +415,8 @@ doif(struct sem_rec *cond, void *m1, void *m2)
  * LLVM API calls:
  * None -- but uses backpatch
  */
-void
-doifelse(struct sem_rec *cond, void *m1, struct sem_rec *n,
-  void *m2, void *m3)
-{
+void doifelse(struct sem_rec *cond, void *m1, struct sem_rec *n, void *m2,
+              void *m3) {
   fprintf(stderr, "sem: doifelse not implemented\n");
   return;
 }
@@ -444,9 +432,7 @@ doifelse(struct sem_rec *cond, void *m1, struct sem_rec *n,
  * IRBuilder::CreateRetVoid();
  * IRBuilder::CreateRet(Value *);
  */
-void
-doret(struct sem_rec *e)
-{
+void doret(struct sem_rec *e) {
   fprintf(stderr, "sem: doret not implemented\n");
   return;
 }
@@ -461,10 +447,8 @@ doret(struct sem_rec *e)
  * LLVM API calls:
  * None -- but uses backpatch
  */
-void
-dowhile(void *m1, struct sem_rec *cond, void *m2,
-  struct sem_rec *n, void *m3)
-{
+void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
+             void *m3) {
   fprintf(stderr, "sem: dowhile not implemented\n");
   return;
 }
@@ -478,11 +462,9 @@ dowhile(void *m1, struct sem_rec *cond, void *m2,
  * LLVM API calls:
  * None
  */
-struct sem_rec*
-exprs(struct sem_rec *l, struct sem_rec *e)
-{
+struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e) {
   fprintf(stderr, "sem: exprs not implemented\n");
-  return ((struct sem_rec *) NULL);
+  return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -491,12 +473,10 @@ exprs(struct sem_rec *l, struct sem_rec *e)
  * Grammar:
  * fhead -> fname fargs '{' dcls  { fhead($1); }
  */
-void
-fhead(struct id_entry *p)
-{
+void fhead(struct id_entry *p) {
   Type *func_type, *var_type;
   Value *arr_size;
-  vector<Type*> func_args;
+  vector<Type *> func_args;
   GlobalValue::LinkageTypes linkage;
   FunctionType *FT;
   Function *F;
@@ -515,13 +495,11 @@ fhead(struct id_entry *p)
   FT = FunctionType::get(func_type, makeArrayRef(func_args), false);
 
   /* linkage is external if function is main */
-  linkage = (strcmp(p->i_name, "main") == 0) ?
-            Function::ExternalLinkage :
-            Function::InternalLinkage ;
+  linkage = (strcmp(p->i_name, "main") == 0) ? Function::ExternalLinkage
+                                             : Function::InternalLinkage;
 
   F = Function::Create(FT, linkage, p->i_name, TheModule.get());
-  p->i_value = (void*) F;
-
+  p->i_value = (void *)F;
 
   B = BasicBlock::Create(TheContext, "", F);
   Builder.SetInsertPoint(B);
@@ -536,23 +514,24 @@ fhead(struct id_entry *p)
     v = formalvars[i++];
     arg.setName(v->i_name);
     var_type = get_llvm_type(v->i_type);
-    arr_size = (v->i_width > 1) ?
-               (ConstantInt::get(get_llvm_type(T_INT), v->i_width)) :
-               NULL;
+    arr_size = (v->i_width > 1)
+                   ? (ConstantInt::get(get_llvm_type(T_INT), v->i_width))
+                   : NULL;
 
     v->i_value = Builder.CreateAlloca(var_type, arr_size, arg.getName());
-    Builder.CreateStore(&arg, (Value*)v->i_value);
+    Builder.CreateStore(&arg, (Value *)v->i_value);
   }
 
   /* Create the instance of stack memory for each local variable */
   for (i = 0; i < localnum; i++) {
     v = localvars[i];
     var_type = get_llvm_type(v->i_type);
-    arr_size = (v->i_width > 1) ?
-               (ConstantInt::get(get_llvm_type(T_INT), v->i_width)) :
-               NULL;
+    arr_size = (v->i_width > 1)
+                   ? (ConstantInt::get(get_llvm_type(T_INT), v->i_width))
+                   : NULL;
 
-    v->i_value = Builder.CreateAlloca(var_type, arr_size, std::string(v->i_name));
+    v->i_value =
+        Builder.CreateAlloca(var_type, arr_size, std::string(v->i_name));
   }
 }
 
@@ -563,9 +542,7 @@ fhead(struct id_entry *p)
  * fname -> type ID               { $$ = fname($1, $2); }
  * fname -> ID                    { $$ = fname(T_INT, $1); }
  */
-struct id_entry*
-fname(int t, char *id)
-{
+struct id_entry *fname(int t, char *id) {
   struct id_entry *entry = lookup(id, 0);
 
   // add function to hash table if it doesn't exist
@@ -598,9 +575,7 @@ fname(int t, char *id)
  * Grammar:
  * func -> fhead stmts '}'       { ftail(); }
  */
-void
-ftail()
-{
+void ftail() {
   numgotos = 0;
   numlabelids = 0;
   leaveblock();
@@ -616,9 +591,7 @@ ftail()
  * LLVM API calls:
  * None
  */
-struct sem_rec*
-id(char *x)
-{
+struct sem_rec *id(char *x) {
   struct id_entry *entry;
 
   if ((entry = lookup(x, 0)) == NULL) {
@@ -629,8 +602,12 @@ id(char *x)
     entry->i_defined = 1;
   }
 
-  fprintf(stderr, "sem: remainder of id not implemented\n");
-  return ((struct sem_rec *) NULL);
+  // insert identifier into the symbol table
+  // Return a  semantic record with a value corresponding to that identifier
+  // Constructor that takes an LLVM value and a type
+  // It will call the node constructor which will then fill in and save a
+  // semantic record
+  return (s_node((void *)entry->i_value, entry->i_type | T_ADDR));
 }
 
 /*
@@ -643,11 +620,9 @@ id(char *x)
  * makeArrayRef(vector<Value*>)
  * IRBuilder::CreateGEP(Type, Value *, ArrayRef<Value*>)
  */
-struct sem_rec*
-indx(struct sem_rec *x, struct sem_rec *i)
-{
+struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i) {
   fprintf(stderr, "sem: indx not implemented\n");
-  return ((struct sem_rec *) NULL);
+  return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -668,9 +643,7 @@ indx(struct sem_rec *x, struct sem_rec *i)
  * IRBuilder::SetInsertPoint(BasicBlock*)
  * BranchInst::setSuccessor(unsigned, BasicBlock*)
  */
-void
-labeldcl(const char *id)
-{
+void labeldcl(const char *id) {
   fprintf(stderr, "sem: labeldcl not implemented\n");
   return;
 }
@@ -688,11 +661,9 @@ labeldcl(const char *id)
  * IRBuilder::CreateBr(BasicBlock*)
  * IRBuilder::SetInsertPoint(BasicBlock*)
  */
-void*
-m ()
-{
+void *m() {
   fprintf(stderr, "sem: m not implemented\n");
-  return (void *) NULL;
+  return (void *)NULL;
 }
 
 /*
@@ -701,8 +672,7 @@ m ()
  * LLVM API calls:
  * IRBuilder::CreateBr(BasicBlock *)
  */
-struct sem_rec *n()
-{
+struct sem_rec *n() {
   fprintf(stderr, "sem: n not implemented\n");
   return NULL;
 }
@@ -716,11 +686,30 @@ struct sem_rec *n()
  * IRBuilder::CreateNeg(Value *)
  * IRBuilder::CreateFNeg(Value *)
  */
-struct sem_rec*
-op1(const char *op, struct sem_rec *y)
-{
-  fprintf(stderr, "sem: op1 not implemented\n");
-  return ((struct sem_rec *) NULL);
+struct sem_rec *op1(const char *op, struct sem_rec *y) {
+  struct sem_rec *rec;
+
+  // for line 217 in cgram.y, handles the op1 ('@', id) call
+  if (*op == '@') {
+    if (!(y->s_type & T_ARRAY)) {
+      y->s_type &= ~T_ADDR;
+      // Creates a load instr in the ll code
+      rec = s_node(
+          Builder.CreateLoad(get_llvm_type(y->s_type), ((Value *)y->s_value)),
+          y->s_type);
+    }
+  }
+
+  // TODO: Remainder of this function, handle "~", "-"
+  else if (*op == '-') {
+    fprintf(stderr, "op1: handling the '-' operator is not implemented\n");
+    return NULL;
+  } else if (*op == '~') {
+    fprintf(stderr, "op1: handling the '~' operator is not implemented\n");
+    return NULL;
+  }
+
+  return rec;
 }
 
 /*
@@ -745,9 +734,7 @@ op1(const char *op, struct sem_rec *y)
  * IRBuilder::CreateShl(Value *, Value *)
  * IRBuilder::CreateAShr(Value *, Value *)
  */
-struct sem_rec*
-op2(const char *op, struct sem_rec *x, struct sem_rec *y)
-{
+struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y) {
   fprintf(stderr, "sem: op2 not implemented\n");
   return NULL;
 }
@@ -759,11 +746,9 @@ op2(const char *op, struct sem_rec *x, struct sem_rec *y)
  * method used by op2, opb, and set. The comment above op2 lists the LLVM API
  * calls for this method.
  */
-struct sem_rec*
-opb(const char *op, struct sem_rec *x, struct sem_rec *y)
-{
+struct sem_rec *opb(const char *op, struct sem_rec *x, struct sem_rec *y) {
   fprintf(stderr, "sem: opb not implemented\n");
-  return ((struct sem_rec *) NULL);
+  return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -791,11 +776,54 @@ opb(const char *op, struct sem_rec *x, struct sem_rec *y)
  * IRBuilder::CreateICmpSGE(Value *, Value *)
  * IRBuilder::CreateFCmpOGE(Value *, Value *)
  */
-struct sem_rec*
-rel(const char *op, struct sem_rec *x, struct sem_rec *y)
-{
-  fprintf(stderr, "sem: rel not implemented\n");
-  return ((struct sem_rec *) NULL);
+struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
+  // NOTE: Remember that you will need to add casting when comparing an int and
+  // floating point Just be sure to check the types and stuff I guess of x & y
+  // and cast them before doing the op
+  // NOTE: Additionally, may need to return differently depending on the
+  // operation?
+
+  Value *val;
+
+  // INT LESS THAN
+  if (*op == '<') {
+    // Handling int case
+    if (x->s_type == T_INT && y->s_type == T_INT) {
+      val = Builder.CreateICmpSLT((Value *)x->s_value, (Value *)y->s_value);
+    }
+  }
+
+  // GREATER THAN
+  else if (*op == '>') {
+    fprintf(stderr, "rel: > not implemented yet\n");
+    return NULL;
+  }
+
+  // EQUALS
+  else if (strcmp(op, "==") == 0) {
+    fprintf(stderr, "rel: == not implemented yet\n");
+    return NULL;
+  }
+
+  // NOT EQUAL
+  else if (strcmp(op, "!=") == 0) {
+    fprintf(stderr, "rel: != not implemented yet\n");
+    return NULL;
+  }
+
+  // LESS THAN EQUAL TO
+  else if (strcmp(op, "<=") == 0) {
+    fprintf(stderr, "rel: <= not implemented yet\n");
+    return NULL;
+  }
+
+  // GREATER THAN EQUAL TO
+  else if (strcmp(op, ">=") == 0) {
+    fprintf(stderr, "rel: >= not implemented yet\n");
+    return NULL;
+  }
+
+  return (ccexpr(s_node((void *)val, T_INT)));
 }
 
 /*
@@ -805,11 +833,9 @@ rel(const char *op, struct sem_rec *x, struct sem_rec *y)
  * IRBuilder::CreateSIToFP(Value *, Type *)
  * IRBuilder::CreateFPToSI(Value *, Type *)
  */
-struct sem_rec*
-cast (struct sem_rec *y, int t)
-{
+struct sem_rec *cast(struct sem_rec *y, int t) {
   fprintf(stderr, "sem: cast not implemented\n");
-  return ((struct sem_rec *) NULL);
+  return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -836,11 +862,9 @@ cast (struct sem_rec *y, int t)
  * IRBuilder::CreateLoad(Type, Value *)
  * IRBuilder::CreateStore(Value *, Value *)
  */
-struct sem_rec*
-set(const char *op, struct sem_rec *x, struct sem_rec *y)
-{
+struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
   fprintf(stderr, "sem: set not implemented\n");
-  return ((struct sem_rec *) NULL);
+  return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -854,41 +878,31 @@ set(const char *op, struct sem_rec *x, struct sem_rec *y)
  * LLVM API calls:
  * IRBuilder::CreateGlobalStringPtr(char *)
  */
-struct sem_rec*
-genstring(char *s)
-{
+struct sem_rec *genstring(char *s) {
   fprintf(stderr, "sem: genstring not implemented\n");
-  return (struct sem_rec *) NULL;
+  return (struct sem_rec *)NULL;
 }
 
-void
-declare_print ()
-{
+void declare_print() {
   struct id_entry *entry;
   FunctionType *var_arg;
   Value *F;
   std::string fname = "print";
 
   /* Add print to our internal data structure */
-  var_arg = FunctionType::get(IntegerType::getInt32Ty(TheContext),
-                              PointerType::get(Type::getInt8Ty(TheContext), 0), true);
+  var_arg =
+      FunctionType::get(IntegerType::getInt32Ty(TheContext),
+                        PointerType::get(Type::getInt8Ty(TheContext), 0), true);
   F = TheModule->getOrInsertFunction(fname, var_arg).getCallee();
 
-  entry = install( slookup(fname.c_str()), 0 );
+  entry = install(slookup(fname.c_str()), 0);
   entry->i_type = T_INT | T_PROC;
-  entry->i_value = (void*) F;
+  entry->i_value = (void *)F;
 }
 
-void
-init_IR ()
-{
+void init_IR() {
   TheModule = make_unique<Module>("<stdin>", TheContext);
   declare_print();
 }
 
-
-void
-emit_IR ()
-{
-  TheModule->print(outs(), nullptr);
-}
+void emit_IR() { TheModule->print(outs(), nullptr); }
