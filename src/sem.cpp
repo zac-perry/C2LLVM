@@ -184,6 +184,9 @@ void backpatch(struct sem_rec *rec, void *bb) {
   unsigned i;
   BranchInst *br_inst;
 
+  // for each successor of the branch, set successor for branches
+  // NOTE: Does not handle certain cases at the moment (TODO)
+    // May be a list of things to backpatch
   if ((br_inst = llvm::dyn_cast<BranchInst>((Value *)rec->s_value))) {
     for (i = 0; i < br_inst->getNumSuccessors(); i++) {
       if (br_inst->getSuccessor(i) == ((BasicBlock *)rec->s_bb)) {
@@ -194,8 +197,6 @@ void backpatch(struct sem_rec *rec, void *bb) {
     fprintf(stderr, "error: backpatch with non-branch instruction\n");
     exit(1);
   }
-
-  return;
 }
 
 /*
@@ -252,6 +253,12 @@ struct sem_rec *ccexpr(struct sem_rec *e) {
 
   // this return is confusing but basically represents (node { s_true = true,
   // s_false = false} )
+  // Creates basic blocks to jump to on true and false, since we don't know where they should resolve to 
+    // yet (not done parsing if statement, which is why it's structured like this.
+    // Returning a semantic record, but the semantic record just contains the true and false branch (they hold semantic records) 
+    // that have branch instructions that are incomplete (no / bad labels). When you know the true labels, can use this record to go back
+    // and 'patch' in these things (backpatching) 
+  // RETURNING A RECORD THAT CAN BE BACKPATCHED AND HAVE LABELS FILLED IN!
   return (node((void *)NULL, (void *)NULL, 0, (struct sem_rec *)NULL,
                (node(val, tmp_true, 0, (struct sem_rec *)NULL,
                      (struct sem_rec *)NULL, (struct sem_rec *)NULL)),
@@ -399,10 +406,10 @@ void dogoto(char *id) {
  * None -- but uses backpatch
  */
 void doif(struct sem_rec *cond, void *m1, void *m2) {
-  // 1. First: implement backpatching
-  // Then, use that within this
-  fprintf(stderr, "sem: doif not implemented\n");
-  return;
+  backpatch(cond->s_true, m1);
+  backpatch(cond->s_false, m2);
+  //fprintf(stderr, "sem: doif not implemented\n");
+  //return;
 }
 
 /*
@@ -433,8 +440,12 @@ void doifelse(struct sem_rec *cond, void *m1, struct sem_rec *n, void *m2,
  * IRBuilder::CreateRet(Value *);
  */
 void doret(struct sem_rec *e) {
-  fprintf(stderr, "sem: doret not implemented\n");
-  return;
+  if (!e) {
+    Builder.CreateRetVoid();
+    return;
+  }
+
+  Builder.CreateRet( ((Value *) e->s_value) );
 }
 
 /*
@@ -662,8 +673,25 @@ void labeldcl(const char *id) {
  * IRBuilder::SetInsertPoint(BasicBlock*)
  */
 void *m() {
-  fprintf(stderr, "sem: m not implemented\n");
-  return (void *)NULL;
+  BasicBlock *bb;
+
+  std::string label = new_label();
+  bb = create_named_label(label);
+
+  // In LLVM, every block has to end with a branch instr or retunr
+  // if end of block you are in is NOT a branch instr or return ,you insert one
+  if (Builder.GetInsertBlock()->getTerminator() == NULL) {
+    Builder.CreateBr(bb);
+  }
+
+  // Then, set the insert point to this BB
+  // Any new instructions generated with API will be at this block
+  // For example, now in the first m block of the code example given: if ( cexpr ) m lblstmt m
+  Builder.SetInsertPoint(bb);
+  return (void *) bb;
+
+  //fprintf(stderr, "sem: m not implemented\n");
+  //return (void *)NULL;
 }
 
 /*
@@ -687,6 +715,7 @@ struct sem_rec *n() {
  * IRBuilder::CreateFNeg(Value *)
  */
 struct sem_rec *op1(const char *op, struct sem_rec *y) {
+
   struct sem_rec *rec;
 
   // for line 217 in cgram.y, handles the op1 ('@', id) call
