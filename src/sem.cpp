@@ -211,6 +211,10 @@ void backpatch(struct sem_rec *rec, void *bb) {
  * IRBuilder::CreateCall(Function *, ArrayRef<Value*>)
  */
 struct sem_rec *call(char *f, struct sem_rec *args) {
+  
+  // Look up the f char in the symbol table
+  // Call the function with the array of args? 
+
   fprintf(stderr, "sem: call not implemented\n");
   return ((struct sem_rec *)NULL);
 }
@@ -863,8 +867,21 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
  * IRBuilder::CreateFPToSI(Value *, Type *)
  */
 struct sem_rec *cast(struct sem_rec *y, int t) {
-  fprintf(stderr, "sem: cast not implemented\n");
-  return ((struct sem_rec *)NULL);
+  
+  Value *val = (Value *)y->s_value;
+  
+  // Convert y type & value depending on t
+  if (t == T_DOUBLE) {
+    val = Builder.CreateSIToFP(val, get_llvm_type(t));
+    y->s_type = t;
+    y->s_value = val;
+  } 
+  else if (t == T_INT) {
+    val = Builder.CreateFPToSI(val, get_llvm_type(t));
+    y->s_type = t;
+    y->s_value = val;
+  }
+    return y;
 }
 
 /*
@@ -892,6 +909,24 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
  * IRBuilder::CreateStore(Value *, Value *)
  */
 struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
+  // TODO: Add rest for the other SET calls 
+  // assigning to a var
+  if (*op == '\0') {
+    // handle casting here if needed
+    // If the left (var) is a double and y isn't
+    if ((x->s_type & T_DOUBLE) && !(y->s_type & T_DOUBLE)) {
+      y = cast(y, T_DOUBLE);
+    }
+    // Else if Left is an int and y isn't 
+    // NOTE: idk if this is actually needed / handled anywhere 
+    else if ((x->s_type & T_INT) && !(y->s_type & T_INT)) {
+      y = cast(y, T_INT);
+    }
+
+    Builder.CreateStore((Value *) y->s_value, (Value *) x->s_value);
+    return x; 
+  }
+
   fprintf(stderr, "sem: set not implemented\n");
   return ((struct sem_rec *)NULL);
 }
