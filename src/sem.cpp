@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <stdio.h>
 
 extern "C" {
@@ -190,7 +191,7 @@ void backpatch(struct sem_rec *rec, void *bb) {
   if ((br_inst = llvm::dyn_cast<BranchInst>((Value *)rec->s_value))) {
     for (i = 0; i < br_inst->getNumSuccessors(); i++) {
       if (br_inst->getSuccessor(i) == ((BasicBlock *)rec->s_bb)) {
-        br_inst->setSuccessor(i, (BasicBlock *)bb);
+         br_inst->setSuccessor(i, (BasicBlock *)bb);
       }
     }
   } else {
@@ -212,11 +213,35 @@ void backpatch(struct sem_rec *rec, void *bb) {
  */
 struct sem_rec *call(char *f, struct sem_rec *args) {
   
-  // Look up the f char in the symbol table
-  // Call the function with the array of args? 
+  // Look up f in the symbol table
+  struct id_entry *entry = lookup(f, 0);
+  if (entry == NULL) {
+    fprintf(stderr, "undefined function called?\n");
+    return NULL;
+  } 
 
-  fprintf(stderr, "sem: call not implemented\n");
-  return ((struct sem_rec *)NULL);
+  // Get the function?????
+  Function *F = (Function *)entry->i_value;
+
+  // Loop through the arguments and throw them onto a vector
+  vector<Value *> vec_args;
+  struct sem_rec *current_arg = args;
+
+  while (current_arg != NULL) {
+    vec_args.push_back((Value *) current_arg->s_value);
+    current_arg = current_arg ->s_link;
+  }
+
+  return node (
+    Builder.CreateCall(F, makeArrayRef(vec_args)),
+    NULL,
+    entry->i_type,
+    NULL,
+    NULL,
+    NULL
+  );
+  //fprintf(stderr, "sem: call not implemented\n");
+  //return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -478,8 +503,22 @@ void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
  * None
  */
 struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e) {
-  fprintf(stderr, "sem: exprs not implemented\n");
-  return ((struct sem_rec *)NULL);
+  // NOTE: Will return a single expression
+  if (l == NULL) return e;
+
+  struct sem_rec *current_entry = l;
+
+  // Loop through the list of expressions until the end. 
+  // Then, insert the new entry onto this list
+  while (current_entry->s_link != NULL) {
+    current_entry = current_entry->s_link;
+  }
+
+  current_entry->s_link = e;
+  return l;
+
+  //fprintf(stderr, "sem: exprs not implemented\n");
+  //return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -911,6 +950,7 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
 struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
   // TODO: Add rest for the other SET calls 
   // assigning to a var
+  // THIS IS FOR ""
   if (*op == '\0') {
     // handle casting here if needed
     // If the left (var) is a double and y isn't
@@ -943,8 +983,26 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
  * IRBuilder::CreateGlobalStringPtr(char *)
  */
 struct sem_rec *genstring(char *s) {
-  fprintf(stderr, "sem: genstring not implemented\n");
-  return (struct sem_rec *)NULL;
+
+  // Will call parse_escape_chars on s i guess
+  // Then, create global string ptr? 
+  
+  char *new_str = parse_escape_chars(s);
+  struct sem_rec *rec;
+
+  rec = node(
+    Builder.CreateGlobalStringPtr(new_str),
+    NULL,
+    T_STR,
+    NULL,
+    NULL,
+    NULL
+  );
+  
+  return rec;
+
+  //fprintf(stderr, "sem: genstring not implemented\n");
+  //return (struct sem_rec *)NULL;
 }
 
 void declare_print() {

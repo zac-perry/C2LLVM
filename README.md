@@ -12,7 +12,7 @@ CESM reads a C program (actually a subset of C) from its standard input and comp
 - Many of the functions are still not finished, will need to mainly finish backpatching, etc. 
 - rewatch lectures if needed, provide good direction and way to think about everything
 - [x] Input #1
-- [ ] Input #2
+- [x] Input #2
 - [ ] Input #3
 - [ ] Input #4
 - [ ] Input #5
@@ -53,6 +53,26 @@ Notes
     - Takes a semantic records (produced by cexpr routine) 
 - Expecting a branch instr
 - successor - blocks you can go to in a branch (different places to jump to)
+
+
+
+##### Input 2 TODO
+
+- genstring done? 
+    - Was calling with weird arguments, just pass string and its good now.
+- exprs now
+    - One issue i rant into: wasn't going to the end of the list before adding new args
+    - As a result, a ton of them get overwritten 
+    - Fixed, just loop to the end (linked list) fasion, add there.
+- call now 
+    - Look up the function in the lookup table to ensure it exists before calling 
+    - get the function, add all args for it to a vector, then make a new node, with the LLVM function CreateCall()
+
+
+
+
+
+
 
 
 
