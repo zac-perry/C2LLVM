@@ -218,7 +218,6 @@ void backpatch(struct sem_rec *rec, void *bb) {
  * IRBuilder::CreateCall(Function *, ArrayRef<Value*>)
  */
 struct sem_rec *call(char *f, struct sem_rec *args) {
-  fprintf(stderr, "   CALL() -> at the beginning\n"); 
   // Look up f in the symbol table
   struct id_entry *entry = lookup(f, 0);
   if (entry == NULL) {
@@ -238,6 +237,7 @@ struct sem_rec *call(char *f, struct sem_rec *args) {
     current_arg = current_arg ->s_link;
   }
 
+  // TODO: return s_node instead
   return node (
     Builder.CreateCall(F, makeArrayRef(vec_args)),
     NULL,
@@ -424,34 +424,25 @@ void dodo(void *m1, void *m2, struct sem_rec *cond, void *m3) {
  */
 void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
            void *m3, struct sem_rec *n2, void *m4) {
-
-  fprintf(stderr, "At the beginning of do for\n");
   // If condition is true, go into loop body 
   // Otherwise, if false, jump to after the loop and exit
   if (cond != NULL) {
-    fprintf(stderr, "about to backpatch the true and false in for\n");
     backpatch(cond->s_true, m3);
     backpatch(cond->s_false, m4); 
   }
 
-  fprintf(stderr, "right before rthe n backpatches in for\n");
   backpatch(n2, m2);
   backpatch(n1, m1);
 
-  fprintf(stderr, "right before the first looptop call\n");
   if (looptop && looptop->conts) {
     backpatch(looptop->conts, m2);
   }
 
-  fprintf(stderr, "right before the second looptop call\n");
   if (looptop && looptop->breaks){
     backpatch(looptop->breaks, m4);
   }
 
-  fprintf(stderr, "right before ending loop scope in for\n");
   endloopscope();
-
-  fprintf(stderr, "at the end of do for\n");
 }
 
 /*
@@ -542,15 +533,12 @@ void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
   // Backpatch for the condition being true -> jump to m2
   // Backpatch for the condition being false -> jump to m3 (outside of loop)
   // Backpatch for n1->m1 to check the loop condition again (iteration)
-  fprintf(stderr, "at the beginning of dowhile?\n");
   backpatch(cond->s_true, m2);
   backpatch(cond->s_false, m3);
   backpatch(n, m1);
 
   // idk if i need this
   endloopscope();
-
-  fprintf(stderr, "at the end of the while loop\n");
 }
 
 /*
@@ -995,7 +983,6 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   // INT LESS THAN
   if (*op == '<') {
-    fprintf(stderr, "       REL(): Comparing <\n");
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLT((Value *)x->s_value, (Value *)y->s_value);
     }
@@ -1014,15 +1001,15 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   // GREATER THAN
   else if (*op == '>') {
-    if (x->s_type == T_INT && y->s_type == T_INT) {
+    if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSGT((Value *)x->s_value, (Value *)y->s_value);
     }
     // Check and if one of them is a double, cast the other to a double
-    else if (x->s_type == T_DOUBLE || y->s_type == T_DOUBLE) {
-      if (x->s_type != T_DOUBLE) {
+    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+      if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
       }
-      else if (y->s_type != T_DOUBLE){
+      else if (!(y->s_type & T_DOUBLE)) {
         y = cast(y, T_DOUBLE);
       }
 
@@ -1032,15 +1019,15 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   // EQUALS
   else if (strcmp(op, "==") == 0) {
-    if (x->s_type == T_INT && y->s_type == T_INT) {
+    if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpEQ((Value *)x->s_value, (Value *)y->s_value);
     }
     // Check and if one of them is a double, cast the other to a double
-    else if (x->s_type == T_DOUBLE || y->s_type == T_DOUBLE) {
-      if (x->s_type != T_DOUBLE) {
+    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+      if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
       }
-      else if (y->s_type != T_DOUBLE){
+      else if (!(y->s_type & T_DOUBLE)){
         y = cast(y, T_DOUBLE);
       }
 
@@ -1137,7 +1124,6 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
   struct sem_rec *result = nullptr;
 
   if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 || strcmp(op, "/") == 0 || strcmp(op, "%") == 0) {
-    fprintf(stderr, "calling op2 with %s\n", op);
     result = op2(op, x_new, y); 
   } else {
     result = opb(op, x_new, y);
@@ -1168,6 +1154,7 @@ struct sem_rec *genstring(char *s) {
   char *new_str = parse_escape_chars(s);
   struct sem_rec *rec;
 
+  //TODO: Refactor s_node
   rec = node(
     Builder.CreateGlobalStringPtr(new_str),
     NULL,
@@ -1176,11 +1163,8 @@ struct sem_rec *genstring(char *s) {
     NULL,
     NULL
   );
-  
-  return rec;
 
-  //fprintf(stderr, "sem: genstring not implemented\n");
-  //return (struct sem_rec *)NULL;
+  return rec;
 }
 
 void declare_print() {
