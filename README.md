@@ -80,7 +80,9 @@ Notes
     - Without this, was only backpatching the first call, not the rest
 
 
-
+##### Input 4 TODO
+- ccnot
+    - just return a node with the true and false swap, ez
 
 
 

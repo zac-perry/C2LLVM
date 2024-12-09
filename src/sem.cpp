@@ -315,8 +315,9 @@ struct sem_rec *ccexpr(struct sem_rec *e) {
  * None
  */
 struct sem_rec *ccnot(struct sem_rec *e) {
-  fprintf(stderr, "sem: ccnot not implemented\n");
-  return ((struct sem_rec *)NULL);
+
+  // Basically just flip the true and false (assign false to true, assign true to false)
+  return node(e->s_value, e->s_bb, e->s_type, NULL, e->s_false, e->s_true);
 }
 
 /*
