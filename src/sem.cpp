@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <stdio.h>
+#include <string.h>
 
 extern "C" {
 #include "cc.h"
@@ -217,7 +218,7 @@ void backpatch(struct sem_rec *rec, void *bb) {
  * IRBuilder::CreateCall(Function *, ArrayRef<Value*>)
  */
 struct sem_rec *call(char *f, struct sem_rec *args) {
-  
+  fprintf(stderr, "   CALL() -> at the beginning\n"); 
   // Look up f in the symbol table
   struct id_entry *entry = lookup(f, 0);
   if (entry == NULL) {
@@ -423,8 +424,34 @@ void dodo(void *m1, void *m2, struct sem_rec *cond, void *m3) {
  */
 void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
            void *m3, struct sem_rec *n2, void *m4) {
-  fprintf(stderr, "sem: dofor not implemented\n");
-  return;
+
+  fprintf(stderr, "At the beginning of do for\n");
+  // If condition is true, go into loop body 
+  // Otherwise, if false, jump to after the loop and exit
+  if (cond != NULL) {
+    fprintf(stderr, "about to backpatch the true and false in for\n");
+    backpatch(cond->s_true, m3);
+    backpatch(cond->s_false, m4); 
+  }
+
+  fprintf(stderr, "right before rthe n backpatches in for\n");
+  backpatch(n2, m2);
+  backpatch(n1, m1);
+
+  fprintf(stderr, "right before the first looptop call\n");
+  if (looptop && looptop->conts) {
+    backpatch(looptop->conts, m2);
+  }
+
+  fprintf(stderr, "right before the second looptop call\n");
+  if (looptop && looptop->breaks){
+    backpatch(looptop->breaks, m4);
+  }
+
+  fprintf(stderr, "right before ending loop scope in for\n");
+  endloopscope();
+
+  fprintf(stderr, "at the end of do for\n");
 }
 
 /*
@@ -511,8 +538,19 @@ void doret(struct sem_rec *e) {
  */
 void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
              void *m3) {
-  fprintf(stderr, "sem: dowhile not implemented\n");
-  return;
+
+  // Backpatch for the condition being true -> jump to m2
+  // Backpatch for the condition being false -> jump to m3 (outside of loop)
+  // Backpatch for n1->m1 to check the loop condition again (iteration)
+  fprintf(stderr, "at the beginning of dowhile?\n");
+  backpatch(cond->s_true, m2);
+  backpatch(cond->s_false, m3);
+  backpatch(n, m1);
+
+  // idk if i need this
+  endloopscope();
+
+  fprintf(stderr, "at the end of the while loop\n");
 }
 
 /*
@@ -697,8 +735,14 @@ struct sem_rec *id(char *x) {
  * IRBuilder::CreateGEP(Type, Value *, ArrayRef<Value*>)
  */
 struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i) {
-  fprintf(stderr, "sem: indx not implemented\n");
-  return ((struct sem_rec *)NULL);
+
+
+  vector<Value*> indices;  
+  indices.push_back((Value *)i->s_value);
+
+  Value *instr = Builder.CreateGEP(get_llvm_type(x->s_type), (Value *)x->s_value, makeArrayRef(indices));
+
+  return s_node(instr, (x->s_type & ~T_ARRAY));  
 }
 
 /*
@@ -804,6 +848,7 @@ struct sem_rec *op1(const char *op, struct sem_rec *y) {
     fprintf(stderr, "op1: handling the '-' operator is not implemented\n");
     return NULL;
   } else if (*op == '~') {
+    // TODO: INTEGERS ONLY!
     fprintf(stderr, "op1: handling the '~' operator is not implemented\n");
     return NULL;
   }
@@ -834,8 +879,48 @@ struct sem_rec *op1(const char *op, struct sem_rec *y) {
  * IRBuilder::CreateAShr(Value *, Value *)
  */
 struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y) {
-  fprintf(stderr, "sem: op2 not implemented\n");
-  return NULL;
+
+  // check op and call? 
+  struct sem_rec *val = nullptr;
+
+  if (strcmp(op, "+") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateAdd((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+    else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFAdd((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    } 
+  } else if (strcmp(op, "-") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateSub((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+    else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFSub((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  } else if (strcmp(op, "*") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateMul((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+    else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFMul((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  } else if (strcmp(op, "/") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateSDiv((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+    else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFDiv((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  } else if (strcmp(op, "%") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateSRem((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    } else {
+      fprintf(stderr, "op2 error: Calling mod with doubles not allowed\n");
+      return NULL;
+    }
+  } 
+
+  return val;
 }
 
 /*
@@ -846,8 +931,32 @@ struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y) {
  * calls for this method.
  */
 struct sem_rec *opb(const char *op, struct sem_rec *x, struct sem_rec *y) {
-  fprintf(stderr, "sem: opb not implemented\n");
-  return ((struct sem_rec *)NULL);
+
+  struct sem_rec *val = nullptr;
+
+  if (strcmp(op, "|") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateOr((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  } else if (strcmp(op, "^") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateXor((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  } else if (strcmp(op, "&") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateAnd((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  } else if (strcmp(op, "<<") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateShl((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  } else if (strcmp(op, ">>") == 0) {
+    if (x->s_type & T_INT) {
+      val = s_node(Builder.CreateAShr((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+    }
+  }
+  
+  return val;
 }
 
 /*
@@ -886,15 +995,16 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   // INT LESS THAN
   if (*op == '<') {
-    if (x->s_type == T_INT && y->s_type == T_INT) {
+    fprintf(stderr, "       REL(): Comparing <\n");
+    if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLT((Value *)x->s_value, (Value *)y->s_value);
     }
     // Check and if one of them is a double, cast the other to a double
-    else if (x->s_type == T_DOUBLE || y->s_type == T_DOUBLE) {
-      if (x->s_type != T_DOUBLE) {
+    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+      if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
       }
-      else if (y->s_type != T_DOUBLE){
+      else if (!(y->s_type & T_DOUBLE)){
         y = cast(y, T_DOUBLE);
       }
 
@@ -971,12 +1081,12 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
   Value *val = (Value *)y->s_value;
   
   // Convert y type & value depending on t
-  if (t == T_DOUBLE) {
+  if (t & T_DOUBLE) {
     val = Builder.CreateSIToFP(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
   } 
-  else if (t == T_INT) {
+  else if (t & T_INT) {
     val = Builder.CreateFPToSI(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
@@ -1009,27 +1119,34 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
  * IRBuilder::CreateStore(Value *, Value *)
  */
 struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
-  // TODO: Add rest for the other SET calls 
-  // assigning to a var
-  // THIS IS FOR ""
-  if (*op == '\0') {
-    // handle casting here if needed
-    // If the left (var) is a double and y isn't
-    if ((x->s_type & T_DOUBLE) && !(y->s_type & T_DOUBLE)) {
-      y = cast(y, T_DOUBLE);
-    }
-    // Else if Left is an int and y isn't 
-    // NOTE: idk if this is actually needed / handled anywhere 
-    else if ((x->s_type & T_INT) && !(y->s_type & T_INT)) {
-      y = cast(y, T_INT);
-    }
+  if (x->s_type != y->s_type) {
+    y = cast(y, x->s_type);
+  }
 
+  // NOTE: THIS IS FOR ""
+  if (strcmp(op, "") == 0) {
     Builder.CreateStore((Value *) y->s_value, (Value *) x->s_value);
     return x; 
   }
 
-  fprintf(stderr, "sem: set not implemented\n");
-  return ((struct sem_rec *)NULL);
+  // load
+  Value *loaded_x = Builder.CreateLoad(get_llvm_type(x->s_type), (Value*)x->s_value);
+
+  // op2 / opb
+  struct sem_rec *x_new = s_node(loaded_x, x->s_type);
+  struct sem_rec *result = nullptr;
+
+  if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 || strcmp(op, "/") == 0 || strcmp(op, "%") == 0) {
+    fprintf(stderr, "calling op2 with %s\n", op);
+    result = op2(op, x_new, y); 
+  } else {
+    result = opb(op, x_new, y);
+  }
+
+  // store
+  if (result != NULL) Builder.CreateStore((Value *)result->s_value, (Value*) x->s_value);
+
+  return result;
 }
 
 /*

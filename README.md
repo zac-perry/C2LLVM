@@ -84,6 +84,23 @@ Notes
 - ccnot
     - just return a node with the true and false swap, ez
 
+##### Input 5 TODO
+- set 
+    - op2 
+    - op1
+    - opb
+- indx
+- dofor
+
+
+NOTE: when debugging, found that when comparing types, you NEED TO USE &, as one record could have multiple types (T_ARRAY and T_INT for example) 
+    - Use bitwise & to get the type
+
+
+
+
+
+
 
 
 
