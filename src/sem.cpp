@@ -785,7 +785,7 @@ struct sem_rec *n() {
  */
 struct sem_rec *op1(const char *op, struct sem_rec *y) {
 
-  struct sem_rec *rec;
+  struct sem_rec *rec = nullptr;
 
   // for line 217 in cgram.y, handles the op1 ('@', id) call
   if (*op == '@') {

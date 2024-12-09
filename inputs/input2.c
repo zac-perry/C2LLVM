@@ -9,7 +9,7 @@ int main()
 
   a = 3;
   b = 4;
-  c = 5;
+  c = 1;
   d = 6;
 
   print("%d %3.2f %d %3.2f\n", a, b, c, d);
