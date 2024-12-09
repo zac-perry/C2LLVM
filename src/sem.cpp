@@ -379,8 +379,10 @@ struct sem_rec *con(const char *x) {
  * None -- but uses n
  */
 void dobreak() {
-  fprintf(stderr, "sem: dobreak not implemented\n");
-  return;
+  if (looptop) {
+    struct sem_rec *n_location = n();
+    looptop->breaks = merge(looptop->breaks, n_location);
+  }
 }
 
 /*
@@ -393,8 +395,10 @@ void dobreak() {
  * None -- but uses n
  */
 void docontinue() {
-  fprintf(stderr, "sem: docontinue not implemented\n");
-  return;
+  if (looptop) {
+    struct sem_rec *n_location = n();
+    looptop->conts = merge(looptop->conts, n_location);
+  }
 }
 
 /*
@@ -537,7 +541,18 @@ void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
   backpatch(cond->s_false, m3);
   backpatch(n, m1);
 
-  // idk if i need this
+  // handle the breaks and continues
+  if (looptop && looptop->conts) {
+    // check the continues -> go to the loop condition 
+    backpatch(looptop->conts, m1);
+  }
+
+  // check breaks -> go to loop exit
+  if (looptop && looptop->breaks) {
+    backpatch(looptop->breaks, m3);
+  }
+
+  // end the scope for the loop
   endloopscope();
 }
 
@@ -801,7 +816,7 @@ struct sem_rec *n() {
   // create target for the goto
   // create unconditional branch instr
   // create and return record for backpatching
-  BasicBlock *targetBlock = BasicBlock::Create(TheContext, "goto_target");
+  BasicBlock *targetBlock = create_tmp_label();
   Value *branch = Builder.CreateBr(targetBlock);
 
   return node(branch, targetBlock, 0, NULL, NULL, NULL);

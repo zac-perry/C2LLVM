@@ -14,9 +14,9 @@ CESM reads a C program (actually a subset of C) from its standard input and comp
 - [x] Input #1
 - [x] Input #2
 - [x] Input #3
-- [ ] Input #4
-- [ ] Input #5
-- [ ] Input #6
+- [x] Input #4
+- [x] Input #5
+- [x] Input #6
 - [ ] Input #7
 - [ ] Input #8
 
@@ -97,6 +97,10 @@ NOTE: when debugging, found that when comparing types, you NEED TO USE &, as one
     - Use bitwise & to get the type
 
 
+##### Input 6 todo
+- docontinue
+- do break
+- Had to fix dowhile + dofor to handle these cases as well.
 
 
 
