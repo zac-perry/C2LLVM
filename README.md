@@ -13,7 +13,7 @@ CESM reads a C program (actually a subset of C) from its standard input and comp
 - rewatch lectures if needed, provide good direction and way to think about everything
 - [x] Input #1
 - [x] Input #2
-- [ ] Input #3
+- [x] Input #3
 - [ ] Input #4
 - [ ] Input #5
 - [ ] Input #6
@@ -68,7 +68,16 @@ Notes
     - Look up the function in the lookup table to ensure it exists before calling 
     - get the function, add all args for it to a vector, then make a new node, with the LLVM function CreateCall()
 
-
+##### Input 3 TODO
+- rel > 
+- ccand 
+- rel == 
+- ccor 
+- n 
+- doifelse
+- backpatch
+    - Added recursive call to backpatch the entire list of branch instructions
+    - Without this, was only backpatching the first call, not the rest
 
 
 

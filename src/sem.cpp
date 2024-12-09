@@ -183,7 +183,7 @@ void global_alloc(struct id_entry *p, int width) {
  */
 void backpatch(struct sem_rec *rec, void *bb) {
   unsigned i;
-  BranchInst *br_inst;
+  BranchInst *br_inst = nullptr;
 
   // for each successor of the branch, set successor for branches
   // NOTE: Does not handle certain cases at the moment (TODO)
@@ -197,6 +197,11 @@ void backpatch(struct sem_rec *rec, void *bb) {
   } else {
     fprintf(stderr, "error: backpatch with non-branch instruction\n");
     exit(1);
+  }
+  
+  // backpatch the rest of the branch instructions
+  if (rec->s_link) {
+    backpatch(rec->s_link, bb);
   }
 }
 
@@ -254,8 +259,13 @@ struct sem_rec *call(char *f, struct sem_rec *args) {
  * None
  */
 struct sem_rec *ccand(struct sem_rec *e1, void *m, struct sem_rec *e2) {
-  fprintf(stderr, "sem: ccand not implemented\n");
-  return ((struct sem_rec *)NULL);
+  
+  // first, need to handle the case where the first (e1) is true, then go to e2
+  backpatch(e1->s_true, m);
+
+  // determine if e2 is true -> then AND is true
+  // Otherwise, merge the false lists, either being flase = AND being false
+  return node(NULL, NULL, 0, NULL, e2->s_true, merge(e1->s_false, e2->s_false));
 }
 
 /*
@@ -319,8 +329,14 @@ struct sem_rec *ccnot(struct sem_rec *e) {
  * None -- but uses backpatch
  */
 struct sem_rec *ccor(struct sem_rec *e1, void *m, struct sem_rec *e2) {
-  fprintf(stderr, "sem: ccor not implemented\n");
-  return NULL;
+
+  // backpatch
+  // If e1 is false, go to e2 and evaluate
+  backpatch(e1->s_false, m);
+
+  // If e1 or e2 are true (merge), then OR is true
+  // If e2 is false, then statement is false
+  return node(NULL, NULL, 0, NULL, merge(e1->s_true, e2->s_true), e2->s_false);
 }
 
 /*
@@ -453,8 +469,13 @@ void doif(struct sem_rec *cond, void *m1, void *m2) {
  */
 void doifelse(struct sem_rec *cond, void *m1, struct sem_rec *n, void *m2,
               void *m3) {
-  fprintf(stderr, "sem: doifelse not implemented\n");
-  return;
+
+  // if true, go to m1 (if)
+  // if false, go to m2 (else)
+  // backpatch n, jump to m (end of the else if)
+  backpatch(cond->s_true, m1);
+  backpatch(cond->s_false, m2);
+  backpatch(n, m3);
 }
 
 /*
@@ -744,8 +765,13 @@ void *m() {
  * IRBuilder::CreateBr(BasicBlock *)
  */
 struct sem_rec *n() {
-  fprintf(stderr, "sem: n not implemented\n");
-  return NULL;
+  // create target for the goto
+  // create unconditional branch instr
+  // create and return record for backpatching
+  BasicBlock *targetBlock = BasicBlock::Create(TheContext, "goto_target");
+  Value *branch = Builder.CreateBr(targetBlock);
+
+  return node(branch, targetBlock, 0, NULL, NULL, NULL);
 }
 
 /*
@@ -855,26 +881,60 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
   // NOTE: Additionally, may need to return differently depending on the
   // operation?
 
-  Value *val;
+  Value *val = nullptr;
 
   // INT LESS THAN
   if (*op == '<') {
-    // Handling int case
     if (x->s_type == T_INT && y->s_type == T_INT) {
       val = Builder.CreateICmpSLT((Value *)x->s_value, (Value *)y->s_value);
+    }
+    // Check and if one of them is a double, cast the other to a double
+    else if (x->s_type == T_DOUBLE || y->s_type == T_DOUBLE) {
+      if (x->s_type != T_DOUBLE) {
+        x = cast(x, T_DOUBLE);
+      }
+      else if (y->s_type != T_DOUBLE){
+        y = cast(y, T_DOUBLE);
+      }
+
+      val = Builder.CreateFCmpOLT((Value *)x->s_value, (Value *)y->s_value);
     }
   }
 
   // GREATER THAN
   else if (*op == '>') {
-    fprintf(stderr, "rel: > not implemented yet\n");
-    return NULL;
+    if (x->s_type == T_INT && y->s_type == T_INT) {
+      val = Builder.CreateICmpSGT((Value *)x->s_value, (Value *)y->s_value);
+    }
+    // Check and if one of them is a double, cast the other to a double
+    else if (x->s_type == T_DOUBLE || y->s_type == T_DOUBLE) {
+      if (x->s_type != T_DOUBLE) {
+        x = cast(x, T_DOUBLE);
+      }
+      else if (y->s_type != T_DOUBLE){
+        y = cast(y, T_DOUBLE);
+      }
+
+      val = Builder.CreateFCmpOGT((Value *)x->s_value, (Value *)y->s_value);
+    }
   }
 
   // EQUALS
   else if (strcmp(op, "==") == 0) {
-    fprintf(stderr, "rel: == not implemented yet\n");
-    return NULL;
+    if (x->s_type == T_INT && y->s_type == T_INT) {
+      val = Builder.CreateICmpEQ((Value *)x->s_value, (Value *)y->s_value);
+    }
+    // Check and if one of them is a double, cast the other to a double
+    else if (x->s_type == T_DOUBLE || y->s_type == T_DOUBLE) {
+      if (x->s_type != T_DOUBLE) {
+        x = cast(x, T_DOUBLE);
+      }
+      else if (y->s_type != T_DOUBLE){
+        y = cast(y, T_DOUBLE);
+      }
+
+      val = Builder.CreateFCmpOEQ((Value *)x->s_value, (Value *)y->s_value);
+    } 
   }
 
   // NOT EQUAL
