@@ -1183,12 +1183,12 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
   Value *val = (Value *)y->s_value;
   
   // Convert y type & value depending on t
-  if (t == T_DOUBLE) {
+  if (t & T_DOUBLE) {
     val = Builder.CreateSIToFP(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
   } 
-  else if (t == T_INT) {
+  else if (t & T_INT) {
     val = Builder.CreateFPToSI(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
