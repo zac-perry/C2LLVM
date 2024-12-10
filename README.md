@@ -4,7 +4,7 @@ CESM reads a C program (actually a subset of C) from its standard input and comp
 
 ## Last TODOs
 - [x] All required things done
-- [ ] Need to implement the 2 other op1 functions
+- [x] Need to implement the 2 other op1 functions
 - [ ] Finish up comments & clean up the code
 - [ ] Report
 

@@ -4,7 +4,7 @@
 
 extern "C" {
 #include "cc.h"
-//#include "malloc.h"
+// #include "malloc.h"
 #include "scan.h"
 #include "sem.h"
 #include "semutil.h"
@@ -189,18 +189,18 @@ void backpatch(struct sem_rec *rec, void *bb) {
 
   // for each successor of the branch, set successor for branches
   // NOTE: Does not handle certain cases at the moment (TODO)
-    // May be a list of things to backpatch
+  // May be a list of things to backpatch
   if ((br_inst = llvm::dyn_cast<BranchInst>((Value *)rec->s_value))) {
     for (i = 0; i < br_inst->getNumSuccessors(); i++) {
       if (br_inst->getSuccessor(i) == ((BasicBlock *)rec->s_bb)) {
-         br_inst->setSuccessor(i, (BasicBlock *)bb);
+        br_inst->setSuccessor(i, (BasicBlock *)bb);
       }
     }
   } else {
     fprintf(stderr, "error: backpatch with non-branch instruction\n");
     exit(1);
   }
-  
+
   // backpatch the rest of the branch instructions
   if (rec->s_link) {
     backpatch(rec->s_link, bb);
@@ -225,7 +225,7 @@ struct sem_rec *call(char *f, struct sem_rec *args) {
   if (entry == NULL) {
     fprintf(stderr, "undefined function called?\n");
     return NULL;
-  } 
+  }
 
   // Get the function
   Function *F = (Function *)entry->i_value;
@@ -234,8 +234,8 @@ struct sem_rec *call(char *f, struct sem_rec *args) {
   vector<Value *> vec_args;
   struct sem_rec *current_arg = args;
   while (current_arg != NULL) {
-    vec_args.push_back((Value *) current_arg->s_value);
-    current_arg = current_arg ->s_link;
+    vec_args.push_back((Value *)current_arg->s_value);
+    current_arg = current_arg->s_link;
   }
 
   // TODO: return s_node instead
@@ -252,7 +252,7 @@ struct sem_rec *call(char *f, struct sem_rec *args) {
  * None
  */
 struct sem_rec *ccand(struct sem_rec *e1, void *m, struct sem_rec *e2) {
-  
+
   // first, need to handle the case where the first (e1) is true, then go to e2
   backpatch(e1->s_true, m);
 
@@ -285,11 +285,13 @@ struct sem_rec *ccexpr(struct sem_rec *e) {
 
   // this return is confusing but basically represents (node { s_true = true,
   // s_false = false} )
-  // Creates basic blocks to jump to on true and false, since we don't know where they should resolve to 
-    // yet (not done parsing if statement, which is why it's structured like this.
-    // Returning a semantic record, but the semantic record just contains the true and false branch (they hold semantic records) 
-    // that have branch instructions that are incomplete (no / bad labels). When you know the true labels, can use this record to go back
-    // and 'patch' in these things (backpatching) 
+  // Creates basic blocks to jump to on true and false, since we don't know
+  // where they should resolve to yet (not done parsing if statement, which is
+  // why it's structured like this. Returning a semantic record, but the
+  // semantic record just contains the true and false branch (they hold semantic
+  // records) that have branch instructions that are incomplete (no / bad
+  // labels). When you know the true labels, can use this record to go back and
+  // 'patch' in these things (backpatching)
   // RETURNING A RECORD THAT CAN BE BACKPATCHED AND HAVE LABELS FILLED IN!
   return (node((void *)NULL, (void *)NULL, 0, (struct sem_rec *)NULL,
                (node(val, tmp_true, 0, (struct sem_rec *)NULL,
@@ -309,7 +311,8 @@ struct sem_rec *ccexpr(struct sem_rec *e) {
  */
 struct sem_rec *ccnot(struct sem_rec *e) {
 
-  // Basically just flip the true and false (assign false to true, assign true to false)
+  // Basically just flip the true and false (assign false to true, assign true
+  // to false)
   return node(e->s_value, e->s_bb, e->s_type, NULL, e->s_false, e->s_true);
 }
 
@@ -432,11 +435,11 @@ void dodo(void *m1, void *m2, struct sem_rec *cond, void *m3) {
  */
 void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
            void *m3, struct sem_rec *n2, void *m4) {
-  // If condition is true, go into loop body 
+  // If condition is true, go into loop body
   // Otherwise, if false, jump to after the loop and exit
   if (cond != NULL) {
     backpatch(cond->s_true, m3);
-    backpatch(cond->s_false, m4); 
+    backpatch(cond->s_false, m4);
   }
 
   backpatch(n2, m2);
@@ -446,7 +449,7 @@ void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
     backpatch(looptop->conts, m2);
   }
 
-  if (looptop && looptop->breaks){
+  if (looptop && looptop->breaks) {
     backpatch(looptop->breaks, m4);
   }
 
@@ -468,8 +471,9 @@ void dogoto(char *id) {
     fprintf(stderr, "Too many goto statements\n");
     exit(1);
   }
-  
-  // Go ahead and look to see if the branch exists already. If so, just branch to it & return
+
+  // Go ahead and look to see if the branch exists already. If so, just branch
+  // to it & return
   for (int i = 0; i < numlabelids; i++) {
     if (strcmp(labels[i].id, id) == 0) {
       Builder.CreateBr(labels[i].bb);
@@ -477,10 +481,10 @@ void dogoto(char *id) {
     }
   }
 
-  // If the branch DNE, then go ahead and make a temp block and branch to it. 
-  BasicBlock *target = create_tmp_label(); 
+  // If the branch DNE, then go ahead and make a temp block and branch to it.
+  BasicBlock *target = create_tmp_label();
   BranchInst *instr = Builder.CreateBr(target);
-  
+
   // Set / save the id and branch for backpatching, also increment numgotos
   gotos[numgotos].id = id;
   gotos[numgotos].branch = instr;
@@ -540,7 +544,7 @@ void doret(struct sem_rec *e) {
     return;
   }
 
-  Builder.CreateRet( ((Value *) e->s_value) );
+  Builder.CreateRet(((Value *)e->s_value));
 }
 
 /*
@@ -565,7 +569,7 @@ void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
 
   // handle the breaks and continues
   if (looptop && looptop->conts) {
-    // check the continues -> go to the loop condition 
+    // check the continues -> go to the loop condition
     backpatch(looptop->conts, m1);
   }
 
@@ -589,11 +593,12 @@ void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
  */
 struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e) {
   // NOTE: Will return a single expression
-  if (l == NULL) return e;
+  if (l == NULL)
+    return e;
 
   struct sem_rec *current_entry = l;
 
-  // Loop through the list of expressions until the end. 
+  // Loop through the list of expressions until the end.
   // Then, insert the new entry onto this list
   while (current_entry->s_link != NULL) {
     current_entry = current_entry->s_link;
@@ -758,13 +763,13 @@ struct sem_rec *id(char *x) {
  */
 struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i) {
 
-
-  vector<Value*> indices;  
+  vector<Value *> indices;
   indices.push_back((Value *)i->s_value);
 
-  Value *instr = Builder.CreateGEP(get_llvm_type(x->s_type), (Value *)x->s_value, makeArrayRef(indices));
+  Value *instr = Builder.CreateGEP(get_llvm_type(x->s_type),
+                                   (Value *)x->s_value, makeArrayRef(indices));
 
-  return s_node(instr, (x->s_type & ~T_ARRAY));  
+  return s_node(instr, (x->s_type & ~T_ARRAY));
 }
 
 /*
@@ -792,7 +797,7 @@ void labeldcl(const char *id) {
     fprintf(stderr, "Too many labels\n");
     exit(1);
   }
-  
+
   // Create block with specific name to match output
   BasicBlock *bb = create_named_label(std::string("userlbl_") + id);
 
@@ -810,7 +815,7 @@ void labeldcl(const char *id) {
   Builder.SetInsertPoint(bb);
 
   // backpatch any of the current existing gotos here
-  for (int i =0; i < numgotos; i++) {
+  for (int i = 0; i < numgotos; i++) {
     if (gotos[i].id && strcmp(gotos[i].id, id) == 0) {
       gotos[i].branch->setSuccessor(0, bb);
       gotos[i].id = NULL;
@@ -845,9 +850,10 @@ void *m() {
 
   // Then, set the insert point to this BB
   // Any new instructions generated with API will be at this block
-  // For example, now in the first m block of the code example given: if ( cexpr ) m lblstmt m
+  // For example, now in the first m block of the code example given: if ( cexpr
+  // ) m lblstmt m
   Builder.SetInsertPoint(bb);
-  return (void *) bb;
+  return (void *)bb;
 }
 
 /*
@@ -879,25 +885,23 @@ struct sem_rec *op1(const char *op, struct sem_rec *y) {
 
   struct sem_rec *rec = nullptr;
 
-  // for line 217 in cgram.y, handles the op1 ('@', id) call
-  if (*op == '@') {
+  if (strcmp(op, "-") == 0) {
+    if (y->s_type & T_INT) {
+      rec = s_node(Builder.CreateNeg((Value *)y->s_value), y->s_type);
+    } else if (y->s_type & T_DOUBLE) {
+      rec = s_node(Builder.CreateFNeg((Value *)y->s_value), y->s_type);
+    }
+  } else if (strcmp(op, "~") == 0) {
+    if (y->s_type & T_INT) {
+      rec = s_node(Builder.CreateNot((Value *)y->s_value), y->s_type);
+    }
+  } else if (strcmp(op, "@") == 0) {
     if (!(y->s_type & T_ARRAY)) {
       y->s_type &= ~T_ADDR;
-      // Creates a load instr in the ll code
       rec = s_node(
           Builder.CreateLoad(get_llvm_type(y->s_type), ((Value *)y->s_value)),
           y->s_type);
     }
-  }
-
-  // TODO: Remainder of this function, handle "~", "-"
-  else if (*op == '-') {
-    fprintf(stderr, "op1: handling the '-' operator is not implemented\n");
-    return NULL;
-  } else if (*op == '~') {
-    // TODO: INTEGERS ONLY!
-    fprintf(stderr, "op1: handling the '~' operator is not implemented\n");
-    return NULL;
   }
 
   return rec;
@@ -930,46 +934,51 @@ struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y) {
   // cast if needed
   if (x->s_type != y->s_type) {
     y = cast(y, x->s_type);
-  } 
+  }
 
   struct sem_rec *val = nullptr;
 
   if (strcmp(op, "+") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateAdd((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateAdd((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
+    } else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFAdd((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
-    else if (x->s_type & T_DOUBLE) {
-      val = s_node(Builder.CreateFAdd((Value *) x->s_value, (Value *) y->s_value), x->s_type);
-    } 
   } else if (strcmp(op, "-") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateSub((Value *) x->s_value, (Value *) y->s_value), x->s_type);
-    }
-    else if (x->s_type & T_DOUBLE) {
-      val = s_node(Builder.CreateFSub((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateSub((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
+    } else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFSub((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   } else if (strcmp(op, "*") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateMul((Value *) x->s_value, (Value *) y->s_value), x->s_type);
-    }
-    else if (x->s_type & T_DOUBLE) {
-      val = s_node(Builder.CreateFMul((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateMul((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
+    } else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFMul((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   } else if (strcmp(op, "/") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateSDiv((Value *) x->s_value, (Value *) y->s_value), x->s_type);
-    }
-    else if (x->s_type & T_DOUBLE) {
-      val = s_node(Builder.CreateFDiv((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateSDiv((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
+    } else if (x->s_type & T_DOUBLE) {
+      val = s_node(Builder.CreateFDiv((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   } else if (strcmp(op, "%") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateSRem((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateSRem((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     } else {
       fprintf(stderr, "op2 error: Calling mod with doubles not allowed\n");
       return NULL;
     }
-  } 
+  }
 
   return val;
 }
@@ -987,26 +996,31 @@ struct sem_rec *opb(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   if (strcmp(op, "|") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateOr((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateOr((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   } else if (strcmp(op, "^") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateXor((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateXor((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   } else if (strcmp(op, "&") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateAnd((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateAnd((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   } else if (strcmp(op, "<<") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateShl((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateShl((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   } else if (strcmp(op, ">>") == 0) {
     if (x->s_type & T_INT) {
-      val = s_node(Builder.CreateAShr((Value *) x->s_value, (Value *) y->s_value), x->s_type);
+      val = s_node(Builder.CreateAShr((Value *)x->s_value, (Value *)y->s_value),
+                   x->s_type);
     }
   }
-  
+
   return val;
 }
 
@@ -1043,12 +1057,10 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
   if (*op == '<') {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLT((Value *)x->s_value, (Value *)y->s_value);
-    }
-    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+    } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
-      }
-      else if (!(y->s_type & T_DOUBLE)){
+      } else if (!(y->s_type & T_DOUBLE)) {
         y = cast(y, T_DOUBLE);
       }
 
@@ -1060,12 +1072,10 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
   else if (*op == '>') {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSGT((Value *)x->s_value, (Value *)y->s_value);
-    }
-    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+    } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
-      }
-      else if (!(y->s_type & T_DOUBLE)) {
+      } else if (!(y->s_type & T_DOUBLE)) {
         y = cast(y, T_DOUBLE);
       }
 
@@ -1077,29 +1087,25 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
   else if (strcmp(op, "==") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpEQ((Value *)x->s_value, (Value *)y->s_value);
-    }
-    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+    } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
-      }
-      else if (!(y->s_type & T_DOUBLE)){
+      } else if (!(y->s_type & T_DOUBLE)) {
         y = cast(y, T_DOUBLE);
       }
 
       val = Builder.CreateFCmpOEQ((Value *)x->s_value, (Value *)y->s_value);
-    } 
+    }
   }
 
   // NOT EQUAL
   else if (strcmp(op, "!=") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpNE((Value *)x->s_value, (Value *)y->s_value);
-    }
-    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+    } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
-      }
-      else if (!(y->s_type & T_DOUBLE)){
+      } else if (!(y->s_type & T_DOUBLE)) {
         y = cast(y, T_DOUBLE);
       }
 
@@ -1111,12 +1117,10 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
   else if (strcmp(op, "<=") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLE((Value *)x->s_value, (Value *)y->s_value);
-    }
-    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+    } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
-      }
-      else if (!(y->s_type & T_DOUBLE)){
+      } else if (!(y->s_type & T_DOUBLE)) {
         y = cast(y, T_DOUBLE);
       }
 
@@ -1126,7 +1130,7 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
   }
   // GREATER THAN EQUAL TO
   // * IRBuilder::CreateICmpSGE(Value *, Value *)
- // * IRBuilder::CreateFCmpOGE(Value *, Value *)
+  // * IRBuilder::CreateFCmpOGE(Value *, Value *)
   else if (strcmp(op, ">=") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSGE((Value *)x->s_value, (Value *)y->s_value);
@@ -1135,15 +1139,14 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
     else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
-      }
-      else if (!(y->s_type & T_DOUBLE)){
+      } else if (!(y->s_type & T_DOUBLE)) {
         y = cast(y, T_DOUBLE);
       }
 
       val = Builder.CreateFCmpOGE((Value *)x->s_value, (Value *)y->s_value);
     }
   }
-  
+
   return (ccexpr(s_node((void *)val, T_INT)));
 }
 
@@ -1155,21 +1158,20 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
  * IRBuilder::CreateFPToSI(Value *, Type *)
  */
 struct sem_rec *cast(struct sem_rec *y, int t) {
-  
+
   Value *val = (Value *)y->s_value;
-  
+
   // Convert y type & value depending on t
   if (t & T_DOUBLE) {
     val = Builder.CreateSIToFP(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
-  } 
-  else if (t & T_INT) {
+  } else if (t & T_INT) {
     val = Builder.CreateFPToSI(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
   }
-    return y;
+  return y;
 }
 
 /*
@@ -1203,26 +1205,28 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   // NOTE: THIS IS FOR ""
   if (strcmp(op, "") == 0) {
-    Builder.CreateStore((Value *) y->s_value, (Value *) x->s_value);
-    return x; 
+    Builder.CreateStore((Value *)y->s_value, (Value *)x->s_value);
+    return x;
   }
 
   // load
-  Value *loaded_x = Builder.CreateLoad(get_llvm_type(x->s_type), (Value*)x->s_value);
+  Value *loaded_x =
+      Builder.CreateLoad(get_llvm_type(x->s_type), (Value *)x->s_value);
 
   // op2 / opb
   struct sem_rec *x_new = s_node(loaded_x, x->s_type);
   struct sem_rec *result = nullptr;
 
-
-  if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 || strcmp(op, "/") == 0 || strcmp(op, "%") == 0) {
-    result = op2(op, x_new, y); 
+  if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 ||
+      strcmp(op, "/") == 0 || strcmp(op, "%") == 0) {
+    result = op2(op, x_new, y);
   } else {
     result = opb(op, x_new, y);
   }
 
   // store
-  if (result != NULL) Builder.CreateStore((Value *)result->s_value, (Value*) x->s_value);
+  if (result != NULL)
+    Builder.CreateStore((Value *)result->s_value, (Value *)x->s_value);
 
   return result;
 }
@@ -1241,11 +1245,10 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
 struct sem_rec *genstring(char *s) {
 
   // Will call parse_escape_chars on s i guess
-  // Then, create global string ptr 
+  // Then, create global string ptr
   char *new_str = parse_escape_chars(s);
-  struct sem_rec *rec;
 
-  return s_node(Builder.CreateGlobalStringPtr(new_str), T_STR); 
+  return s_node(Builder.CreateGlobalStringPtr(new_str), T_STR);
 }
 
 void declare_print() {
