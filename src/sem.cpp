@@ -471,8 +471,28 @@ void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
  * IRBuilder::CreateBr(BasicBlock *)
  */
 void dogoto(char *id) {
-  fprintf(stderr, "sem: dogoto not implemented\n");
-  return;
+
+  if (numgotos >= MAXGOTOS) {
+    fprintf(stderr, "Too many goto statements\n");
+    exit(1);
+  }
+  
+  // Go ahead and look to see if the branch exists already. If so, just branch to it & return
+  for (int i = 0; i < numlabelids; i++) {
+    if (strcmp(labels[i].id, id) == 0) {
+      Builder.CreateBr(labels[i].bb);
+      return;
+    }
+  }
+
+  // If the branch DNE, then go ahead and make a temp block and branch to it. 
+  BasicBlock *target = create_tmp_label(); 
+  BranchInst *instr = Builder.CreateBr(target);
+  
+  // Set / save the id and branch for backpatching, also increment numgotos
+  gotos[numgotos].id = id;
+  gotos[numgotos].branch = instr;
+  numgotos++;
 }
 
 /*
@@ -488,8 +508,6 @@ void dogoto(char *id) {
 void doif(struct sem_rec *cond, void *m1, void *m2) {
   backpatch(cond->s_true, m1);
   backpatch(cond->s_false, m2);
-  //fprintf(stderr, "sem: doif not implemented\n");
-  //return;
 }
 
 /*
@@ -779,8 +797,36 @@ struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i) {
  * BranchInst::setSuccessor(unsigned, BasicBlock*)
  */
 void labeldcl(const char *id) {
-  fprintf(stderr, "sem: labeldcl not implemented\n");
-  return;
+
+  // Check if there are too many labels
+  if (numlabelids >= MAXLABELS) {
+    fprintf(stderr, "Too many labels\n");
+    exit(1);
+  }
+  
+  // Create block with specific name to match output
+  BasicBlock *bb = create_named_label(std::string("userlbl_") + id);
+
+  // now, check the current block for any termination.
+  // If it doesn't have one, then create a branch
+  if (Builder.GetInsertBlock()->getTerminator() == NULL) {
+    Builder.CreateBr(bb);
+  }
+
+  // store the label info
+  labels[numlabelids].id = id;
+  labels[numlabelids].bb = bb;
+  numlabelids++;
+
+  Builder.SetInsertPoint(bb);
+
+  // backpatch any of the current existing gotos here
+  for (int i =0; i < numgotos; i++) {
+    if (gotos[i].id && strcmp(gotos[i].id, id) == 0) {
+      gotos[i].branch->setSuccessor(0, bb);
+      gotos[i].id = NULL;
+    }
+  }
 }
 
 /*
@@ -813,9 +859,6 @@ void *m() {
   // For example, now in the first m block of the code example given: if ( cexpr ) m lblstmt m
   Builder.SetInsertPoint(bb);
   return (void *) bb;
-
-  //fprintf(stderr, "sem: m not implemented\n");
-  //return (void *)NULL;
 }
 
 /*
@@ -895,10 +938,11 @@ struct sem_rec *op1(const char *op, struct sem_rec *y) {
  */
 struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
+  // cast if needed
   if (x->s_type != y->s_type) {
     y = cast(y, x->s_type);
   } 
-  // check op and call? 
+
   struct sem_rec *val = nullptr;
 
   if (strcmp(op, "+") == 0) {

@@ -18,7 +18,7 @@ CESM reads a C program (actually a subset of C) from its standard input and comp
 - [x] Input #5
 - [x] Input #6
 - [x] Input #7
-- [ ] Input #8
+- [x] Input #8
 
 # BIG CONFIG NOTES: 
 - I had to change a couple things for this to actually compile and run on MacOS (the hydra machine was painfully slow) 
@@ -110,6 +110,9 @@ NOTE: when debugging, found that when comparing types, you NEED TO USE &, as one
 - also had to add type conversion wtihin op2, i guess this doensn't always get called from set() so you still need to do it in op2.
 
 
-
+##### Input 8 todo
+- labeldcl
+    - These were horrible
+- dogoto
 
 
