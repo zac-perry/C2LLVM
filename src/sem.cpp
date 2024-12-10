@@ -219,6 +219,7 @@ void backpatch(struct sem_rec *rec, void *bb) {
  * IRBuilder::CreateCall(Function *, ArrayRef<Value*>)
  */
 struct sem_rec *call(char *f, struct sem_rec *args) {
+
   // Look up f in the symbol table
   struct id_entry *entry = lookup(f, 0);
   if (entry == NULL) {
@@ -226,29 +227,19 @@ struct sem_rec *call(char *f, struct sem_rec *args) {
     return NULL;
   } 
 
-  // Get the function?????
+  // Get the function
   Function *F = (Function *)entry->i_value;
 
   // Loop through the arguments and throw them onto a vector
   vector<Value *> vec_args;
   struct sem_rec *current_arg = args;
-
   while (current_arg != NULL) {
     vec_args.push_back((Value *) current_arg->s_value);
     current_arg = current_arg ->s_link;
   }
 
   // TODO: return s_node instead
-  return node (
-    Builder.CreateCall(F, makeArrayRef(vec_args)),
-    NULL,
-    entry->i_type,
-    NULL,
-    NULL,
-    NULL
-  );
-  //fprintf(stderr, "sem: call not implemented\n");
-  //return ((struct sem_rec *)NULL);
+  return s_node(Builder.CreateCall(F, makeArrayRef(vec_args)), entry->i_type);
 }
 
 /*
@@ -610,9 +601,6 @@ struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e) {
 
   current_entry->s_link = e;
   return l;
-
-  //fprintf(stderr, "sem: exprs not implemented\n");
-  //return ((struct sem_rec *)NULL);
 }
 
 /*
@@ -1048,11 +1036,6 @@ struct sem_rec *opb(const char *op, struct sem_rec *x, struct sem_rec *y) {
  * IRBuilder::CreateFCmpOGE(Value *, Value *)
  */
 struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
-  // NOTE: Remember that you will need to add casting when comparing an int and
-  // floating point Just be sure to check the types and stuff I guess of x & y
-  // and cast them before doing the op
-  // NOTE: Additionally, may need to return differently depending on the
-  // operation?
 
   Value *val = nullptr;
 
@@ -1061,7 +1044,6 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLT((Value *)x->s_value, (Value *)y->s_value);
     }
-    // Check and if one of them is a double, cast the other to a double
     else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
@@ -1079,7 +1061,6 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSGT((Value *)x->s_value, (Value *)y->s_value);
     }
-    // Check and if one of them is a double, cast the other to a double
     else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
@@ -1097,7 +1078,6 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpEQ((Value *)x->s_value, (Value *)y->s_value);
     }
-    // Check and if one of them is a double, cast the other to a double
     else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
@@ -1115,7 +1095,6 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpNE((Value *)x->s_value, (Value *)y->s_value);
     }
-    // Check and if one of them is a double, cast the other to a double
     else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
@@ -1129,14 +1108,10 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
   }
 
   // LESS THAN EQUAL TO
-  //* IRBuilder::CreateICmpSLE(Value *, Value *)
-  // * IRBuilder::CreateFCmpOLE(Value *, Value *)
-
   else if (strcmp(op, "<=") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLE((Value *)x->s_value, (Value *)y->s_value);
     }
-    // Check and if one of them is a double, cast the other to a double
     else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
       if (!(x->s_type & T_DOUBLE)) {
         x = cast(x, T_DOUBLE);
@@ -1266,22 +1241,11 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
 struct sem_rec *genstring(char *s) {
 
   // Will call parse_escape_chars on s i guess
-  // Then, create global string ptr? 
-  
+  // Then, create global string ptr 
   char *new_str = parse_escape_chars(s);
   struct sem_rec *rec;
 
-  //TODO: Refactor s_node
-  rec = node(
-    Builder.CreateGlobalStringPtr(new_str),
-    NULL,
-    T_STR,
-    NULL,
-    NULL,
-    NULL
-  );
-
-  return rec;
+  return s_node(Builder.CreateGlobalStringPtr(new_str), T_STR); 
 }
 
 void declare_print() {
