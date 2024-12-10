@@ -17,7 +17,7 @@ CESM reads a C program (actually a subset of C) from its standard input and comp
 - [x] Input #4
 - [x] Input #5
 - [x] Input #6
-- [ ] Input #7
+- [x] Input #7
 - [ ] Input #8
 
 # BIG CONFIG NOTES: 
@@ -103,6 +103,11 @@ NOTE: when debugging, found that when comparing types, you NEED TO USE &, as one
 - Had to fix dowhile + dofor to handle these cases as well.
 
 
+##### Input 7 todo
+- dodo
+    - was easy
+- Add rest of the rel
+- also had to add type conversion wtihin op2, i guess this doensn't always get called from set() so you still need to do it in op2.
 
 
 

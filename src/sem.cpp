@@ -412,8 +412,20 @@ void docontinue() {
  * None -- but uses backpatch
  */
 void dodo(void *m1, void *m2, struct sem_rec *cond, void *m3) {
-  fprintf(stderr, "sem: dodo not implemented\n");
-  return;
+  // backpatch some stuff
+  backpatch(cond->s_true, m1);
+  backpatch(cond->s_false, m3);
+
+  // handle continues and breaks
+  if (looptop && looptop->conts) {
+    backpatch(looptop->conts, m2);
+  }
+
+  if (looptop && looptop->breaks) {
+    backpatch(looptop->breaks, m3);
+  }
+
+  endloopscope();
 }
 
 /*
@@ -883,6 +895,9 @@ struct sem_rec *op1(const char *op, struct sem_rec *y) {
  */
 struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
+  if (x->s_type != y->s_type) {
+    y = cast(y, x->s_type);
+  } 
   // check op and call? 
   struct sem_rec *val = nullptr;
 
@@ -1052,22 +1067,63 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   // NOT EQUAL
   else if (strcmp(op, "!=") == 0) {
-    fprintf(stderr, "rel: != not implemented yet\n");
-    return NULL;
+    if (x->s_type & T_INT && y->s_type & T_INT) {
+      val = Builder.CreateICmpNE((Value *)x->s_value, (Value *)y->s_value);
+    }
+    // Check and if one of them is a double, cast the other to a double
+    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+      if (!(x->s_type & T_DOUBLE)) {
+        x = cast(x, T_DOUBLE);
+      }
+      else if (!(y->s_type & T_DOUBLE)){
+        y = cast(y, T_DOUBLE);
+      }
+
+      val = Builder.CreateFCmpONE((Value *)x->s_value, (Value *)y->s_value);
+    }
   }
 
   // LESS THAN EQUAL TO
+  //* IRBuilder::CreateICmpSLE(Value *, Value *)
+  // * IRBuilder::CreateFCmpOLE(Value *, Value *)
+
   else if (strcmp(op, "<=") == 0) {
-    fprintf(stderr, "rel: <= not implemented yet\n");
-    return NULL;
-  }
+    if (x->s_type & T_INT && y->s_type & T_INT) {
+      val = Builder.CreateICmpSLE((Value *)x->s_value, (Value *)y->s_value);
+    }
+    // Check and if one of them is a double, cast the other to a double
+    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+      if (!(x->s_type & T_DOUBLE)) {
+        x = cast(x, T_DOUBLE);
+      }
+      else if (!(y->s_type & T_DOUBLE)){
+        y = cast(y, T_DOUBLE);
+      }
 
+      val = Builder.CreateFCmpOLE((Value *)x->s_value, (Value *)y->s_value);
+    }
+
+  }
   // GREATER THAN EQUAL TO
+  // * IRBuilder::CreateICmpSGE(Value *, Value *)
+ // * IRBuilder::CreateFCmpOGE(Value *, Value *)
   else if (strcmp(op, ">=") == 0) {
-    fprintf(stderr, "rel: >= not implemented yet\n");
-    return NULL;
-  }
+    if (x->s_type & T_INT && y->s_type & T_INT) {
+      val = Builder.CreateICmpSGE((Value *)x->s_value, (Value *)y->s_value);
+    }
+    // Check and if one of them is a double, cast the other to a double
+    else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
+      if (!(x->s_type & T_DOUBLE)) {
+        x = cast(x, T_DOUBLE);
+      }
+      else if (!(y->s_type & T_DOUBLE)){
+        y = cast(y, T_DOUBLE);
+      }
 
+      val = Builder.CreateFCmpOGE((Value *)x->s_value, (Value *)y->s_value);
+    }
+  }
+  
   return (ccexpr(s_node((void *)val, T_INT)));
 }
 
@@ -1083,12 +1139,12 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
   Value *val = (Value *)y->s_value;
   
   // Convert y type & value depending on t
-  if (t & T_DOUBLE) {
+  if (t == T_DOUBLE) {
     val = Builder.CreateSIToFP(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
   } 
-  else if (t & T_INT) {
+  else if (t == T_INT) {
     val = Builder.CreateFPToSI(val, get_llvm_type(t));
     y->s_type = t;
     y->s_value = val;
@@ -1137,6 +1193,7 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
   // op2 / opb
   struct sem_rec *x_new = s_node(loaded_x, x->s_type);
   struct sem_rec *result = nullptr;
+
 
   if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 || strcmp(op, "/") == 0 || strcmp(op, "%") == 0) {
     result = op2(op, x_new, y); 
