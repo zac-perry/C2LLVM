@@ -4,6 +4,7 @@
 
 extern "C" {
 #include "cc.h"
+//#include "malloc.h"
 #include "scan.h"
 #include "sem.h"
 #include "semutil.h"
