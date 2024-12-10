@@ -2,6 +2,12 @@
 CESM reads a C program (actually a subset of C) from its standard input and compiles it into LLVM intermediate representation (IR) on its standard output.
 
 
+## Last TODOs
+- [x] All required things done
+- [ ] Need to implement the 2 other op1 functions
+- [ ] Finish up comments & clean up the code
+- [ ] Report
+
 ### Supported operations (todo) 
 
 
