@@ -33,9 +33,9 @@ REF_OBJ=./test/ref_$(INPUT).o
 REF_OUT=./test/ref_$(INPUT).out
 REF_EXE=ref_csem_exe
 
-LIBS=`llvm-config --libs core native --ldflags` -lpthread -ldl -lz -L/opt/homebrew/opt/ncurses/lib -lncurses -lunwind
 # linux libs
 # LIBS=`llvm-config --libs core native --ldflags` -lpthread -ldl -lz -ltinfo
+LIBS=`llvm-config --libs core native --ldflags` -lpthread -ldl -lz -L/opt/homebrew/opt/ncurses/lib -lncurses -lunwind
 CFLAGS=-Wall -g -std=c++11 -DLEFTTORIGHT `llvm-config --cxxflags`
 
 all: yacc objects
@@ -73,13 +73,15 @@ clang_ll:
 
 ref_ll:
 	clang -fPIE -E $(SRC) -o $(REF_PP)
-	# extra '' for mac
+	# linux:  
+	# sed -i '/#/d' $(REF_PP)
 	sed -i '' '/#/d' $(REF_PP)
 	./$(REF) < $(REF_PP) > $(REF_LL)
 
 csem_ll:
 	clang -fPIE -E $(SRC) -o $(CSEM_PP)
-	# extra '' for mac
+	# linux: 
+	# sed -i '/#/d' $(CSEM_PP)
 	sed -i '' '/#/d' $(CSEM_PP)
 	./$(CSEM) < $(CSEM_PP) > $(CSEM_LL)
 

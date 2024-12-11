@@ -187,9 +187,10 @@ void backpatch(struct sem_rec *rec, void *bb) {
   unsigned i;
   BranchInst *br_inst = nullptr;
 
-  // for each successor of the branch, set successor for branches
-  // NOTE: Does not handle certain cases at the moment (TODO)
-  // May be a list of things to backpatch
+  // Make sure the current instruction IS a branch instr.
+  // Since there could be a list of things to backpatch, then loop and
+  // getNumSuccessors. If the successor matches the temp block, then set it to
+  // the 'real' block/target.
   if ((br_inst = llvm::dyn_cast<BranchInst>((Value *)rec->s_value))) {
     for (i = 0; i < br_inst->getNumSuccessors(); i++) {
       if (br_inst->getSuccessor(i) == ((BasicBlock *)rec->s_bb)) {
@@ -201,7 +202,7 @@ void backpatch(struct sem_rec *rec, void *bb) {
     exit(1);
   }
 
-  // backpatch the rest of the branch instructions
+  // If there are other links, backpatch them as well to set their targets
   if (rec->s_link) {
     backpatch(rec->s_link, bb);
   }
@@ -220,25 +221,24 @@ void backpatch(struct sem_rec *rec, void *bb) {
  */
 struct sem_rec *call(char *f, struct sem_rec *args) {
 
-  // Look up f in the symbol table
+  // Look up f in the symbol table to see if it exists.
   struct id_entry *entry = lookup(f, 0);
   if (entry == NULL) {
-    fprintf(stderr, "undefined function called?\n");
+    fprintf(stderr, "IN CALL() -- undefined function called..\n");
     return NULL;
   }
 
-  // Get the function
+  // Get the function and loop through the arguments. Store them onto a vector.
   Function *F = (Function *)entry->i_value;
-
-  // Loop through the arguments and throw them onto a vector
   vector<Value *> vec_args;
   struct sem_rec *current_arg = args;
+
   while (current_arg != NULL) {
     vec_args.push_back((Value *)current_arg->s_value);
     current_arg = current_arg->s_link;
   }
 
-  // TODO: return s_node instead
+  // Can now create the call using the Function and arguments.
   return s_node(Builder.CreateCall(F, makeArrayRef(vec_args)), entry->i_type);
 }
 
@@ -253,11 +253,12 @@ struct sem_rec *call(char *f, struct sem_rec *args) {
  */
 struct sem_rec *ccand(struct sem_rec *e1, void *m, struct sem_rec *e2) {
 
-  // first, need to handle the case where the first (e1) is true, then go to e2
+  // First, backpatch when e1 is true -> jump to m.
   backpatch(e1->s_true, m);
 
-  // determine if e2 is true -> then AND is true
-  // Otherwise, merge the false lists, either being flase = AND being false
+  // If e2 is also true, then the AND call is true.
+  // Otherwise, if either are false, merge the e1 and e2 false branches, as AND
+  // is false.
   return node(NULL, NULL, 0, NULL, e2->s_true, merge(e1->s_false, e2->s_false));
 }
 
@@ -277,22 +278,19 @@ struct sem_rec *ccexpr(struct sem_rec *e) {
   BasicBlock *tmp_true, *tmp_false;
   Value *val;
 
-  // creating the temporary labels to jump to (true and false)
-  // create a branch instruction, based on the value passed in (e)
+  // Create temp labels to jump to. Also, create branch instr based on the value
+  // pass in (e)
   tmp_true = create_tmp_label();
   tmp_false = create_tmp_label();
   val = Builder.CreateCondBr((Value *)e->s_value, tmp_true, tmp_false);
 
-  // this return is confusing but basically represents (node { s_true = true,
-  // s_false = false} )
-  // Creates basic blocks to jump to on true and false, since we don't know
-  // where they should resolve to yet (not done parsing if statement, which is
-  // why it's structured like this. Returning a semantic record, but the
-  // semantic record just contains the true and false branch (they hold semantic
-  // records) that have branch instructions that are incomplete (no / bad
-  // labels). When you know the true labels, can use this record to go back and
-  // 'patch' in these things (backpatching)
-  // RETURNING A RECORD THAT CAN BE BACKPATCHED AND HAVE LABELS FILLED IN!
+  // From the lecture:
+  // This will create blocks to jump to on true and false, since we don't know
+  // where they should resolve to yet. Here, we return a sem_rec, but all it
+  // contains is the true and false branches. These branches have branch
+  // instructions that are incomplete and left to be filled in. When the true
+  // labels are known, they are filled in via backpatch. i.e. Returning a record
+  // that can be backpatched and have labels filled in.
   return (node((void *)NULL, (void *)NULL, 0, (struct sem_rec *)NULL,
                (node(val, tmp_true, 0, (struct sem_rec *)NULL,
                      (struct sem_rec *)NULL, (struct sem_rec *)NULL)),
@@ -311,8 +309,7 @@ struct sem_rec *ccexpr(struct sem_rec *e) {
  */
 struct sem_rec *ccnot(struct sem_rec *e) {
 
-  // Basically just flip the true and false (assign false to true, assign true
-  // to false)
+  // Return a node with the true / false records flipped
   return node(e->s_value, e->s_bb, e->s_type, NULL, e->s_false, e->s_true);
 }
 
@@ -327,12 +324,12 @@ struct sem_rec *ccnot(struct sem_rec *e) {
  */
 struct sem_rec *ccor(struct sem_rec *e1, void *m, struct sem_rec *e2) {
 
-  // backpatch
-  // If e1 is false, go to e2 and evaluate
+  // If e1 is false, then go to e2 and evaluate it.
   backpatch(e1->s_false, m);
 
   // If e1 or e2 are true (merge), then OR is true
-  // If e2 is false, then statement is false
+  // If e1 or e2 are true, merge. The OR statement is true.
+  // If e2 is false, then the OR statement is false.
   return node(NULL, NULL, 0, NULL, merge(e1->s_true, e2->s_true), e2->s_false);
 }
 
@@ -346,12 +343,9 @@ struct sem_rec *ccor(struct sem_rec *e1, void *m, struct sem_rec *e2) {
  * ConstantInt::get(Type*, int)
  */
 struct sem_rec *con(const char *x) {
-  // Character string gets passed. Will insert the value into the symbol table
-  // Then, uses LLVM call to create an i_value based on ConstantInt::get
-  // (creates llvm constant to use) Package up content into an s_node and return
-  // that
   struct id_entry *entry;
 
+  // look up the entry in the table. If it DNE, then insert into the table.
   if ((entry = lookup(x, 0)) == NULL) {
     entry = install(x, 0);
     entry->i_type = T_INT;
@@ -359,7 +353,7 @@ struct sem_rec *con(const char *x) {
     entry->i_defined = 1;
   }
 
-  // return a sem_rec corresponding to the constant value
+  // Return a sem_rec corresponding to the constant value using the LLVM call.
   entry->i_value = (void *)ConstantInt::get(get_llvm_type(T_INT), std::stoi(x));
   return (s_node((void *)entry->i_value, entry->i_type));
 }
@@ -374,9 +368,13 @@ struct sem_rec *con(const char *x) {
  * None -- but uses n
  */
 void dobreak() {
+  // Within the loop, this will handle all break statements.
+  // In this case, it will use n() to generate a backpatch pointer so it knows
+  // where to jump on a break. Then, it adds this break to the current loops
+  // list of breaks (using merge).
   if (looptop) {
-    struct sem_rec *n_location = n();
-    looptop->breaks = merge(looptop->breaks, n_location);
+    struct sem_rec *n_backpatch_pointer = n();
+    looptop->breaks = merge(looptop->breaks, n_backpatch_pointer);
   }
 }
 
@@ -390,9 +388,13 @@ void dobreak() {
  * None -- but uses n
  */
 void docontinue() {
+  // Within the loop, this will handle all continue statements.
+  // In this case, it will use n() to generate a backpatch pointer so it knows
+  // where to jump (loop condition). Then, it adds this continue to the current
+  // loops list of continues (using merge).
   if (looptop) {
-    struct sem_rec *n_location = n();
-    looptop->conts = merge(looptop->conts, n_location);
+    struct sem_rec *n_backpatch_pointer = n();
+    looptop->conts = merge(looptop->conts, n_backpatch_pointer);
   }
 }
 
@@ -407,19 +409,24 @@ void docontinue() {
  * None -- but uses backpatch
  */
 void dodo(void *m1, void *m2, struct sem_rec *cond, void *m3) {
-  // backpatch some stuff
+  // Backpatch on the true and false condition according to the stmt above.
+  // In this case, jump to m1 on true (body). m3 on false (while isn't true
+  // anymore).
   backpatch(cond->s_true, m1);
   backpatch(cond->s_false, m3);
 
-  // handle continues and breaks
+  // If there are any continues, make sure to backpatch these to m2 (loop
+  // condition).
   if (looptop && looptop->conts) {
     backpatch(looptop->conts, m2);
   }
 
+  // Also, if there are any breaks, backpatch to m3 (loop isn't true anymore).
   if (looptop && looptop->breaks) {
     backpatch(looptop->breaks, m3);
   }
 
+  // Lastly, end out the loopscope when complete.
   endloopscope();
 }
 
@@ -435,24 +442,29 @@ void dodo(void *m1, void *m2, struct sem_rec *cond, void *m3) {
  */
 void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
            void *m3, struct sem_rec *n2, void *m4) {
-  // If condition is true, go into loop body
-  // Otherwise, if false, jump to after the loop and exit
-  if (cond != NULL) {
-    backpatch(cond->s_true, m3);
-    backpatch(cond->s_false, m4);
-  }
+  // If the for loop condition is true, jump to m3 (body).
+  // Otherwise, jump to after the loop m4 (condition no longer true).
+  backpatch(cond->s_true, m3);
+  backpatch(cond->s_false, m4);
 
+  // End of the loop body will jump to increment m2
+  // Once the increment has happened, then jump back to the previous loop
+  // condition.
   backpatch(n2, m2);
   backpatch(n1, m1);
 
+  // If there are any continues, make sure to backpatch these to m2 (loop
+  // condition).
   if (looptop && looptop->conts) {
     backpatch(looptop->conts, m2);
   }
 
+  // Also, if there are any breaks, backpatch to m4 (loop isn't true anymore).
   if (looptop && looptop->breaks) {
     backpatch(looptop->breaks, m4);
   }
 
+  // Lastly, end out the loopscope when complete.
   endloopscope();
 }
 
@@ -467,13 +479,14 @@ void dofor(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n1,
  */
 void dogoto(char *id) {
 
+  // Check to make sure there aren't too many current GOTO statements.
   if (numgotos >= MAXGOTOS) {
     fprintf(stderr, "Too many goto statements\n");
     exit(1);
   }
 
   // Go ahead and look to see if the branch exists already. If so, just branch
-  // to it & return
+  // to it & return. Helps prevent duplicate branches from being created.
   for (int i = 0; i < numlabelids; i++) {
     if (strcmp(labels[i].id, id) == 0) {
       Builder.CreateBr(labels[i].bb);
@@ -485,7 +498,7 @@ void dogoto(char *id) {
   BasicBlock *target = create_tmp_label();
   BranchInst *instr = Builder.CreateBr(target);
 
-  // Set / save the id and branch for backpatching, also increment numgotos
+  // Set / save the id and branch for backpatching, also increment numgotos.
   gotos[numgotos].id = id;
   gotos[numgotos].branch = instr;
   numgotos++;
@@ -502,6 +515,7 @@ void dogoto(char *id) {
  * None -- but uses backpatch
  */
 void doif(struct sem_rec *cond, void *m1, void *m2) {
+  // Handle the jumps when condition is true & false. (m1 if true, m2 if false).
   backpatch(cond->s_true, m1);
   backpatch(cond->s_false, m2);
 }
@@ -518,10 +532,10 @@ void doif(struct sem_rec *cond, void *m1, void *m2) {
  */
 void doifelse(struct sem_rec *cond, void *m1, struct sem_rec *n, void *m2,
               void *m3) {
-
-  // if true, go to m1 (if)
-  // if false, go to m2 (else)
-  // backpatch n, jump to m (end of the else if)
+  // Handle case when cond is true, go to m1 (if body).
+  // Handle case when cond is false, go to m2 (else body).
+  // Finally, jump to after the else statement once a decision is made and ran
+  // (m3).
   backpatch(cond->s_true, m1);
   backpatch(cond->s_false, m2);
   backpatch(n, m3);
@@ -539,11 +553,14 @@ void doifelse(struct sem_rec *cond, void *m1, struct sem_rec *n, void *m2,
  * IRBuilder::CreateRet(Value *);
  */
 void doret(struct sem_rec *e) {
+
+  // If not returning anything (void), then create a void return.
   if (!e) {
     Builder.CreateRetVoid();
     return;
   }
 
+  // Otherwise, return with the value pass (e).
   Builder.CreateRet(((Value *)e->s_value));
 }
 
@@ -559,26 +576,25 @@ void doret(struct sem_rec *e) {
  */
 void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
              void *m3) {
-
-  // Backpatch for the condition being true -> jump to m2
-  // Backpatch for the condition being false -> jump to m3 (outside of loop)
-  // Backpatch for n1->m1 to check the loop condition again (iteration)
+  // Handle when cond is true. Jump to m2 (in loop body)
+  // Handle when cond if false. Jump to m3 (outside of loop)
+  // Otherwise, jump from end of loop body back to the condition (m1)
   backpatch(cond->s_true, m2);
   backpatch(cond->s_false, m3);
   backpatch(n, m1);
 
-  // handle the breaks and continues
+  // If there are any continues, make sure to backpatch these to m1 (loop
+  // condition).
   if (looptop && looptop->conts) {
-    // check the continues -> go to the loop condition
     backpatch(looptop->conts, m1);
   }
 
-  // check breaks -> go to loop exit
+  // If there are any breaks, make sure to backpatch these to m3 (out of loop).
   if (looptop && looptop->breaks) {
     backpatch(looptop->breaks, m3);
   }
 
-  // end the scope for the loop
+  // Finally, end the loop scope.
   endloopscope();
 }
 
@@ -592,14 +608,17 @@ void dowhile(void *m1, struct sem_rec *cond, void *m2, struct sem_rec *n,
  * None
  */
 struct sem_rec *exprs(struct sem_rec *l, struct sem_rec *e) {
-  // NOTE: Will return a single expression
+
+  // If the current list (starting at l) is empty, then return e as the first
+  // expression to start the list.
   if (l == NULL)
     return e;
 
+  // Loop through the current list of expressions and get the very last element
+  // (linked list fashion). Once found, can insert the new expression by
+  // 'linking' it in.
   struct sem_rec *current_entry = l;
 
-  // Loop through the list of expressions until the end.
-  // Then, insert the new entry onto this list
   while (current_entry->s_link != NULL) {
     current_entry = current_entry->s_link;
   }
@@ -733,8 +752,11 @@ void ftail() {
  * None
  */
 struct sem_rec *id(char *x) {
+
   struct id_entry *entry;
 
+  // Check to see if the identifier already exists in the table. If not, create
+  // and insert.
   if ((entry = lookup(x, 0)) == NULL) {
     yyerror("undeclared identifier");
     entry = install(x, -1);
@@ -743,11 +765,7 @@ struct sem_rec *id(char *x) {
     entry->i_defined = 1;
   }
 
-  // insert identifier into the symbol table
-  // Return a  semantic record with a value corresponding to that identifier
-  // Constructor that takes an LLVM value and a type
-  // It will call the node constructor which will then fill in and save a
-  // semantic record
+  // Return a  semantic record with a value corresponding to that identifier.
   return (s_node((void *)entry->i_value, entry->i_type | T_ADDR));
 }
 
@@ -763,11 +781,15 @@ struct sem_rec *id(char *x) {
  */
 struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i) {
 
-  vector<Value *> indices;
-  indices.push_back((Value *)i->s_value);
+  // Create a vector to hold the index value.
+  vector<Value *> ind;
+  ind.push_back((Value *)i->s_value);
 
+  // Then, create the getelementptr instruction, which will grab the elements
+  // address. NOTE: This is confusing to look back on but basically, it just
+  // allows the indexing to actually get the element address.
   Value *instr = Builder.CreateGEP(get_llvm_type(x->s_type),
-                                   (Value *)x->s_value, makeArrayRef(indices));
+                                   (Value *)x->s_value, makeArrayRef(ind));
 
   return s_node(instr, (x->s_type & ~T_ARRAY));
 }
@@ -792,29 +814,31 @@ struct sem_rec *indx(struct sem_rec *x, struct sem_rec *i) {
  */
 void labeldcl(const char *id) {
 
-  // Check if there are too many labels
+  // Check to make sure there aren't too many current labels.
   if (numlabelids >= MAXLABELS) {
     fprintf(stderr, "Too many labels\n");
     exit(1);
   }
 
-  // Create block with specific name to match output
+  // Create block with specific name to match output.
+  // NOTE: This specific string was needed to match the reference.
   BasicBlock *bb = create_named_label(std::string("userlbl_") + id);
 
-  // now, check the current block for any termination.
-  // If it doesn't have one, then create a branch
+  // Now, check to see if the current block has a termination statement.
+  // If it doesn't have one, then create a branch.
   if (Builder.GetInsertBlock()->getTerminator() == NULL) {
     Builder.CreateBr(bb);
   }
 
-  // store the label info
+  // Store the label info & set the insert point.
   labels[numlabelids].id = id;
   labels[numlabelids].bb = bb;
   numlabelids++;
-
   Builder.SetInsertPoint(bb);
 
-  // backpatch any of the current existing gotos here
+  // Find and fix any current successors/gotos that are related to this label.
+  // NOTE: by setting id to NULL, this esentially adds a check on the checklist
+  // as to what has been handled.
   for (int i = 0; i < numgotos; i++) {
     if (gotos[i].id && strcmp(gotos[i].id, id) == 0) {
       gotos[i].branch->setSuccessor(0, bb);
@@ -837,21 +861,17 @@ void labeldcl(const char *id) {
  * IRBuilder::SetInsertPoint(BasicBlock*)
  */
 void *m() {
-  BasicBlock *bb;
-
+  // Create label and block with that label.
   std::string label = new_label();
-  bb = create_named_label(label);
+  BasicBlock *bb = create_named_label(label);
 
-  // In LLVM, every block has to end with a branch instr or retunr
-  // if end of block you are in is NOT a branch instr or return ,you insert one
+  // Since every block needs to end with a branch or return, we check to see if
+  // it has one (terminator). If not, we create a branch.
   if (Builder.GetInsertBlock()->getTerminator() == NULL) {
     Builder.CreateBr(bb);
   }
 
-  // Then, set the insert point to this BB
-  // Any new instructions generated with API will be at this block
-  // For example, now in the first m block of the code example given: if ( cexpr
-  // ) m lblstmt m
+  // Then, set the new insert point to be at this block.
   Builder.SetInsertPoint(bb);
   return (void *)bb;
 }
@@ -863,9 +883,8 @@ void *m() {
  * IRBuilder::CreateBr(BasicBlock *)
  */
 struct sem_rec *n() {
-  // create target for the goto
-  // create unconditional branch instr
-  // create and return record for backpatching
+  // Create a temp label for the target block and then create a branch.
+  // Returns this for backpatching
   BasicBlock *targetBlock = create_tmp_label();
   Value *branch = Builder.CreateBr(targetBlock);
 
@@ -885,6 +904,8 @@ struct sem_rec *op1(const char *op, struct sem_rec *y) {
 
   struct sem_rec *rec = nullptr;
 
+  // Handles unary operations.
+  // NOTE: '-' can handle both doubles and ints. ~ only handles integers.
   if (strcmp(op, "-") == 0) {
     if (y->s_type & T_INT) {
       rec = s_node(Builder.CreateNeg((Value *)y->s_value), y->s_type);
@@ -931,13 +952,15 @@ struct sem_rec *op1(const char *op, struct sem_rec *y) {
  */
 struct sem_rec *op2(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
-  // cast if needed
+  // If y does not have the same type as x, go ahead and cast it.
   if (x->s_type != y->s_type) {
     y = cast(y, x->s_type);
   }
 
   struct sem_rec *val = nullptr;
 
+  // Handles all arithmetic operations for both integers and doubles.
+  // They all call their respective API functions.
   if (strcmp(op, "+") == 0) {
     if (x->s_type & T_INT) {
       val = s_node(Builder.CreateAdd((Value *)x->s_value, (Value *)y->s_value),
@@ -994,6 +1017,8 @@ struct sem_rec *opb(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   struct sem_rec *val = nullptr;
 
+  // Handles all bitwise operators.
+  // NOTE: Only supports integers.
   if (strcmp(op, "|") == 0) {
     if (x->s_type & T_INT) {
       val = s_node(Builder.CreateOr((Value *)x->s_value, (Value *)y->s_value),
@@ -1053,7 +1078,8 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
   Value *val = nullptr;
 
-  // INT LESS THAN
+  // Handles all relational operators.
+  // NOTE: Supports both integers and doubles. It will also do the casting depending on which is a double.
   if (*op == '<') {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLT((Value *)x->s_value, (Value *)y->s_value);
@@ -1066,10 +1092,7 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
       val = Builder.CreateFCmpOLT((Value *)x->s_value, (Value *)y->s_value);
     }
-  }
-
-  // GREATER THAN
-  else if (*op == '>') {
+  } else if (*op == '>') {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSGT((Value *)x->s_value, (Value *)y->s_value);
     } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
@@ -1081,10 +1104,7 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
       val = Builder.CreateFCmpOGT((Value *)x->s_value, (Value *)y->s_value);
     }
-  }
-
-  // EQUALS
-  else if (strcmp(op, "==") == 0) {
+  } else if (strcmp(op, "==") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpEQ((Value *)x->s_value, (Value *)y->s_value);
     } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
@@ -1096,10 +1116,7 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
       val = Builder.CreateFCmpOEQ((Value *)x->s_value, (Value *)y->s_value);
     }
-  }
-
-  // NOT EQUAL
-  else if (strcmp(op, "!=") == 0) {
+  } else if (strcmp(op, "!=") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpNE((Value *)x->s_value, (Value *)y->s_value);
     } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
@@ -1111,10 +1128,7 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
 
       val = Builder.CreateFCmpONE((Value *)x->s_value, (Value *)y->s_value);
     }
-  }
-
-  // LESS THAN EQUAL TO
-  else if (strcmp(op, "<=") == 0) {
+  } else if (strcmp(op, "<=") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSLE((Value *)x->s_value, (Value *)y->s_value);
     } else if (x->s_type & T_DOUBLE || y->s_type & T_DOUBLE) {
@@ -1127,11 +1141,7 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
       val = Builder.CreateFCmpOLE((Value *)x->s_value, (Value *)y->s_value);
     }
 
-  }
-  // GREATER THAN EQUAL TO
-  // * IRBuilder::CreateICmpSGE(Value *, Value *)
-  // * IRBuilder::CreateFCmpOGE(Value *, Value *)
-  else if (strcmp(op, ">=") == 0) {
+  } else if (strcmp(op, ">=") == 0) {
     if (x->s_type & T_INT && y->s_type & T_INT) {
       val = Builder.CreateICmpSGE((Value *)x->s_value, (Value *)y->s_value);
     }
@@ -1147,6 +1157,7 @@ struct sem_rec *rel(const char *op, struct sem_rec *x, struct sem_rec *y) {
     }
   }
 
+  // Returns the return of ccexpr to create an arithmetic expression from the logical expression.
   return (ccexpr(s_node((void *)val, T_INT)));
 }
 
@@ -1161,7 +1172,8 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
 
   Value *val = (Value *)y->s_value;
 
-  // Convert y type & value depending on t
+  // Determine what type y needs to be converted to 
+  // NOTE: Supports INT->DOUBLE and DOUBLE->INT
   if (t & T_DOUBLE) {
     val = Builder.CreateSIToFP(val, get_llvm_type(t));
     y->s_type = t;
@@ -1171,6 +1183,7 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
     y->s_type = t;
     y->s_value = val;
   }
+
   return y;
 }
 
@@ -1199,21 +1212,24 @@ struct sem_rec *cast(struct sem_rec *y, int t) {
  * IRBuilder::CreateStore(Value *, Value *)
  */
 struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
+  
+  // If y does not have the same type as x, go ahead and cast it.
   if (x->s_type != y->s_type) {
     y = cast(y, x->s_type);
   }
 
-  // NOTE: THIS IS FOR ""
+  // NOTE: This handles the =.
+  // In this case, just store and return.
   if (strcmp(op, "") == 0) {
     Builder.CreateStore((Value *)y->s_value, (Value *)x->s_value);
     return x;
   }
 
-  // load
-  Value *loaded_x =
-      Builder.CreateLoad(get_llvm_type(x->s_type), (Value *)x->s_value);
+  // Load in x from memory.
+  Value *loaded_x = Builder.CreateLoad(get_llvm_type(x->s_type), (Value *)x->s_value);
 
-  // op2 / opb
+  // Go ahead and make a new s_node with x from memory.
+  // Next, determine if function needs to call op2 for arithmetic operations or opb for bitwise operations.
   struct sem_rec *x_new = s_node(loaded_x, x->s_type);
   struct sem_rec *result = nullptr;
 
@@ -1224,7 +1240,7 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
     result = opb(op, x_new, y);
   }
 
-  // store
+  // If there is a result, then store it to memory. 
   if (result != NULL)
     Builder.CreateStore((Value *)result->s_value, (Value *)x->s_value);
 
@@ -1244,8 +1260,7 @@ struct sem_rec *set(const char *op, struct sem_rec *x, struct sem_rec *y) {
  */
 struct sem_rec *genstring(char *s) {
 
-  // Will call parse_escape_chars on s i guess
-  // Then, create global string ptr
+  // Parse the excape characters and then create the string ptr.
   char *new_str = parse_escape_chars(s);
 
   return s_node(Builder.CreateGlobalStringPtr(new_str), T_STR);
